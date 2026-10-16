@@ -34,18 +34,13 @@ let recordTimer = null;
 let recordGeneration = 0;
 let recorder = null;
 let stream = null;
-let profiles=[];
 let activeProfile=null;
 let accountError='';
-let accountNotice='';
-let session=null;
-let setupNeeded=false;
-let googleClientId='';
 let syncPending=false;
 let syncBusy=false;
 
 function freshData(name='Bé'){return {name,completed:{},history:[],cards:{},games:{},questionTurns:{},placement:{done:false,results:{},starts:{}},sound:true,createdAt:new Date().toISOString()};}
-function updateSync(label){const el=document.getElementById('syncState');if(el)el.textContent=label;}
+function updateSync(label){const el=document.getElementById('syncState');if(el){el.textContent=label;el.title=label;el.setAttribute('aria-label',label||'Trạng thái lưu tiến độ');el.classList.toggle('error',label==='Chưa đồng bộ');}}
 async function accountApi(path,options={}){
   const response=await fetch(`/api/${path}`,{credentials:'same-origin',cache:'no-store',...options,headers:{'content-type':'application/json',...(options.headers||{})}});
   const payload=await response.json().catch(()=>({}));
@@ -70,14 +65,13 @@ async function flushProfile(){
     syncPending=false;updateSync('Đang lưu…');
     try{
       const selected=activeProfile;
-      const result=await accountApi(`profiles/${encodeURIComponent(selected.id)}`,{method:'PUT',body:JSON.stringify({revision:selected.revision,data})});
+      const result=await accountApi('solo',{method:'PUT',body:JSON.stringify({revision:selected.revision,data})});
       selected.revision=result.revision;selected.name=data.name;
-      const listed=profiles.find(p=>p.id===selected.id);if(listed)listed.name=data.name;
       if(!syncPending)localStorage.removeItem(`${STORE_KEY}:${selected.id}`);
       updateSync('Đã lưu');
     }catch(error){
       if(error.status===409){
-        try{const latest=await accountApi(`profiles/${encodeURIComponent(activeProfile.id)}`);data=mergeProgress(latest.data,data);activeProfile.revision=latest.revision;syncPending=true;continue;}
+        try{const latest=await accountApi('solo');data=mergeProgress(latest.data,data);activeProfile.revision=latest.revision;syncPending=true;continue;}
         catch(_){}
       }
       syncPending=true;updateSync('Chưa đồng bộ');break;
@@ -89,105 +83,28 @@ function persist(){
   localStorage.setItem(activeProfile?`${STORE_KEY}:${activeProfile.id}`:STORE_KEY,JSON.stringify(data));
   if(activeProfile){syncPending=true;void flushProfile();}
 }
-async function selectProfile(id){
-  if(syncBusy||syncPending){accountError='Tiến độ chưa đồng bộ. Hãy thử lưu lại trước khi mở hồ sơ.';setView('account');return;}
+async function bootstrapSolo(){
   try{
-    const profile=await accountApi(`profiles/${encodeURIComponent(id)}`);
+    const profile=await accountApi('solo');
     activeProfile={id:profile.id,name:profile.name,revision:profile.revision};
     data=profile.data;
-    try{const unsynced=JSON.parse(localStorage.getItem(`${STORE_KEY}:${profile.id}`));if(unsynced?.completed&&Array.isArray(unsynced.history)){data=mergeProgress(data,unsynced);syncPending=true;}}catch(_){}
+    try{const cached=JSON.parse(localStorage.getItem(`${STORE_KEY}:${profile.id}`));if(cached?.completed&&Array.isArray(cached.history)){data=mergeProgress(data,cached);syncPending=true;}}catch(_){}
     if(!data.placement)data.placement={done:Boolean(data.history?.length),results:{},starts:{}};
     if(!data.questionTurns||typeof data.questionTurns!=='object')data.questionTurns={};
     data.placement.results??={};data.placement.starts??={};
-    document.getElementById('profileToggle').textContent=profile.name.charAt(0).toUpperCase();
-    updateSync(syncPending?'Đang lưu…':'Đã lưu');if(syncPending)void flushProfile();setView(data.placement.done||data.history?.length?'home':'assessment');
-  }catch(error){accountError=error.message;setView('account');}
+    document.getElementById('profileToggle').textContent=data.name.charAt(0).toUpperCase();
+    accountError='';updateSync(syncPending?'Đang lưu…':'Đã lưu');
+    if(syncPending)void flushProfile();
+    setView(data.placement.done||data.history?.length?'home':'assessment');
+  }catch(error){activeProfile=null;accountError=error.status===401?'':error.message;updateSync('');setView('account');}
 }
-async function bootstrapAccount(){
-  try{googleClientId=(await accountApi('google/config')).clientId||'';}catch(_){googleClientId='';}
-  try{
-    session=await accountApi('session');setupNeeded=false;
-    document.querySelector('.sidebar .nav-item[data-view="parent"]').style.display=session.role==='child'?'none':'';
-    const result=await accountApi('profiles');profiles=result.profiles;accountError='';
-    if(profiles.length===1)await selectProfile(profiles[0].id);else setView('account');
-  }catch(error){session=null;activeProfile=null;profiles=[];if(error.status===401){try{setupNeeded=(await accountApi('setup/status')).needed;accountError='';}catch(e){accountError=e.message;}}else accountError=`Không tải được tài khoản: ${error.message}`;setView('account');}
-}
-async function createProfile(){
-  if(session?.role!=='parent')return;
-  if(syncBusy||syncPending){accountError='Hãy lưu xong tiến độ hiện tại trước khi tạo hồ sơ khác.';setView('account');return;}
-  const input=document.getElementById('newProfileName'),name=input?.value.trim(),googleEmail=document.getElementById('newProfileGoogleEmail')?.value.trim().toLowerCase();if(!name||!googleEmail){(name?document.getElementById('newProfileGoogleEmail'):input)?.focus();return;}
-  const old=loadData(),hasOld=Object.keys(old.completed||{}).length||old.history?.length||Object.keys(old.cards||{}).length;
-  const seed=hasOld&&document.getElementById('importOldProgress')?.checked?old:freshData(name);
-  seed.name=name.slice(0,25);
-  try{const created=await accountApi('profiles',{method:'POST',body:JSON.stringify({name:seed.name,googleEmail,data:seed})});profiles.push({id:created.id,name:created.name,username:created.username,google_pending:1});accountError='';accountNotice=`Đã thêm hồ sơ ${created.name}. Bé dùng đúng tài khoản Google vừa nhập để đăng nhập. Nếu nhập sai email, hãy sửa lời mời ở hồ sơ.`;setView('account');}
-  catch(error){accountError=`Không tạo được hồ sơ: ${error.message}`;setView('account');}
-}
-async function login(){
-  const username=document.getElementById('loginUsername')?.value.trim(),accessCode=document.getElementById('loginCode')?.value.trim();if(!username||!accessCode)return;
-  try{await accountApi('login',{method:'POST',body:JSON.stringify({username,accessCode})});accountError='';accountNotice='';await bootstrapAccount();}
-  catch(error){accountError=error.message;setView('account');}
-}
-async function googleLogin(credential){
-  try{await accountApi('google/login',{method:'POST',body:JSON.stringify({credential})});accountError='';accountNotice='';await bootstrapAccount();}
-  catch(error){accountError=error.message;setView('account');}
-}
-function renderGoogleButton(){
-  if(!document.getElementById('googleSignIn')||!googleClientId)return;
-  const draw=()=>{
-    const container=document.getElementById('googleSignIn');if(!container||!window.google?.accounts?.id)return;
-    window.google.accounts.id.initialize({client_id:googleClientId,callback:response=>void googleLogin(response.credential),auto_select:false});
-    window.google.accounts.id.renderButton(container,{type:'standard',theme:'outline',size:'large',text:'signin_with',shape:'pill',width:280});
-  };
-  if(window.google?.accounts?.id){draw();return;}
-  if(document.getElementById('googleIdentityScript'))return;
-  const script=document.createElement('script');script.id='googleIdentityScript';script.src='https://accounts.google.com/gsi/client';script.async=true;script.defer=true;script.onload=draw;script.onerror=()=>{const el=document.getElementById('googleSignIn');if(el)el.textContent='Không tải được Google. Hãy kiểm tra mạng rồi tải lại trang.'};document.head.append(script);
-}
-async function updateGoogleInvite(id){
-  const googleEmail=document.getElementById(`invite-${id}`)?.value.trim().toLowerCase();if(!googleEmail)return;
-  try{await accountApi(`profiles/${encodeURIComponent(id)}/google-invite`,{method:'PUT',body:JSON.stringify({googleEmail})});const profile=profiles.find(p=>p.id===id);if(profile)profile.google_pending=1;accountError='';accountNotice='Đã cập nhật tài khoản Google của bé. Bé hãy đăng nhập bằng địa chỉ vừa nhập.';setView('account');}
-  catch(error){accountError=error.message;setView('account');}
-}
-async function setupParent(){
-  const setupKey=document.getElementById('setupKey')?.value.trim(),username=document.getElementById('setupUsername')?.value.trim(),name=document.getElementById('setupName')?.value.trim();
-  if(!setupKey||!username||!name)return;
-  try{const created=await accountApi('setup',{method:'POST',body:JSON.stringify({setupKey,username,name})});setupNeeded=false;accountError='';accountNotice=`Tài khoản phụ huynh: ${created.username}. Mã truy cập: ${created.accessCode}. Hãy lưu lại ngay; mã chỉ hiện một lần.`;setView('account');}
-  catch(error){accountError=error.message;setView('account');}
-}
-async function recoverParent(){
-  const username=document.getElementById('recoverUsername')?.value.trim(),setupKey=document.getElementById('recoverKey')?.value.trim();if(!username||!setupKey)return;
-  try{const result=await accountApi('setup/recover',{method:'POST',body:JSON.stringify({username,setupKey})});accountError='';accountNotice=`Mã mới của phụ huynh ${result.username}: ${result.accessCode}. Mã cũ đã hết hiệu lực. Hãy lưu mã mới ngay.`;setView('account');}
-  catch(error){accountError=error.message;setView('account');}
-}
-async function logout(){
-  if(syncBusy){await new Promise(resolve=>{const timer=setInterval(()=>{if(!syncBusy){clearInterval(timer);resolve()}},50);setTimeout(()=>{clearInterval(timer);resolve()},3000)});}
-  if(syncPending)await flushProfile();
-  if(syncPending){accountError='Tiến độ chưa đồng bộ. Hãy thử lưu lại trước khi đăng xuất.';setView('account');return;}
-  try{await accountApi('logout',{method:'POST',body:'{}'});}catch(error){accountError=`Chưa đăng xuất được: ${error.message}`;setView('account');return;}
-  session=null;activeProfile=null;profiles=[];data=freshData();syncPending=false;accountNotice='';accountError='';document.getElementById('profileToggle').textContent='E';updateSync('');setView('account');
-}
-async function resetCode(id){
-  try{const result=await accountApi(`profiles/${encodeURIComponent(id)}/code`,{method:'POST',body:'{}'});accountError='';accountNotice=`Mã mới của ${result.username}: ${result.accessCode}. Mã cũ và các phiên đăng nhập cũ đã hết hiệu lực. Hãy lưu mã mới ngay.`;setView('account');}
-  catch(error){accountError=error.message;setView('account');}
-}
-async function deleteProfile(id){
-  const selected=profiles.find(p=>p.id===id);if(!selected||!confirm(`Xóa tài khoản ${selected.name} và toàn bộ tiến độ? Việc này không thể hoàn tác nếu chưa tải bản sao.`))return;
-  if(syncBusy){accountError='Đang lưu tiến độ. Hãy thử xóa lại sau khi lưu xong.';setView('account');return;}
-  try{await accountApi(`profiles/${encodeURIComponent(id)}`,{method:'DELETE',body:'{}'});profiles=profiles.filter(p=>p.id!==id);localStorage.removeItem(`${STORE_KEY}:${id}`);if(activeProfile?.id===id){activeProfile=null;data=freshData();syncPending=false;document.getElementById('profileToggle').textContent='E';}accountError='';accountNotice=`Đã xóa tài khoản ${selected.name} và tiến độ trên máy chủ.`;setView('account');}
-  catch(error){accountError=error.message;setView('account');}
-}
-function renderAccount(){
-  const old=loadData(),hasOld=Object.keys(old.completed||{}).length||old.history?.length||Object.keys(old.cards||{}).length;
-  const messages=`${accountError?`<div class="warning" role="alert">${safe(accountError)} <button id="retryAccounts" class="outline-btn">Thử tải lại</button></div>`:''}${accountNotice?`<div class="card guide-card" role="status"><strong>Thông tin đăng nhập — chỉ hiển thị lần này</strong><p class="credential-note">${safe(accountNotice)}</p></div>`:''}`;
-  if(!session)return `<div class="assessment-head"><span class="eyebrow">TÀI KHOẢN RIÊNG</span><h1 class="page-title">Đăng nhập để tiếp tục</h1><p class="page-intro">Phụ huynh và bé dùng tài khoản Google riêng. Tiến độ của bé được giữ trong hồ sơ học tập.</p></div>${messages}
-    ${googleClientId?`<div class="card guide-card profile-create"><h2>Đăng nhập bằng Google</h2><p>Phụ huynh dùng Google đã đăng ký; bé dùng Google được phụ huynh thêm vào hồ sơ.</p><div id="googleSignIn"></div><p>Trang chỉ lưu mã nhận dạng Google của tài khoản đã kết nối; email của bé không hiện trên hồ sơ công khai.</p></div>`:`<div class="card guide-card profile-create"><h2>Đăng nhập Google đang được thiết lập</h2><p>Hãy thử lại sau khi quản trị hoàn tất cấu hình.</p></div>`}
-    <details class="card guide-card profile-create"><summary>Đăng nhập bằng mã cũ</summary><div class="login-fields"><input class="text-input" id="loginUsername" autocomplete="username" placeholder="Tên đăng nhập"><input class="text-input" id="loginCode" type="password" autocomplete="current-password" placeholder="Mã truy cập"><button class="accent-btn" id="loginAccount">Đăng nhập →</button></div></details>
-    ${setupNeeded&&!googleClientId?`<details class="card guide-card profile-create"><summary>Thiết lập phụ huynh bằng mã cũ</summary><div class="login-fields"><input class="text-input" id="setupKey" type="password" placeholder="Mã thiết lập"><input class="text-input" id="setupUsername" autocomplete="username" placeholder="Tên đăng nhập phụ huynh"><input class="text-input" id="setupName" placeholder="Tên phụ huynh"><button class="accent-btn" id="setupParent">Tạo tài khoản phụ huynh</button></div></details>`:''}
-    ${setupNeeded?'':`<details class="card guide-card profile-create"><summary>Phụ huynh quên mã cũ?</summary><div class="login-fields"><input class="text-input" id="recoverUsername" placeholder="Tên đăng nhập phụ huynh"><input class="text-input" id="recoverKey" type="password" placeholder="Mã thiết lập máy chủ"><button class="outline-btn" id="recoverParent">Tạo mã mới</button></div></details>`}`;
-  if(session.role==='child')return `<div class="assessment-head"><span class="eyebrow">HỒ SƠ CỦA BÉ</span><h1 class="page-title">${safe(session.name)}</h1><p class="page-intro">Tiến độ của bé được đồng bộ khi đăng nhập tài khoản này trên thiết bị khác.</p></div>${messages}<div class="utility-row"><button class="accent-btn" id="backProfile">Tiếp tục học</button><button class="outline-btn" id="logoutAccount">Đăng xuất</button></div>`;
-  return `<div class="assessment-head"><span class="eyebrow">QUẢN LÝ HỌC SINH</span><h1 class="page-title">Ai sẽ học hôm nay?</h1><p class="page-intro">Thêm tài khoản Google riêng của bé để bé đăng nhập trên nhiều thiết bị.</p></div>${messages}
-    <div class="assessment-grid">${profiles.map(p=>`<div class="card profile-card"><button data-profile="${safe(p.id)}"><span class="profile-letter">${safe(p.name.charAt(0).toUpperCase())}</span><strong>${safe(p.name)}</strong><small>${p.google_pending?'Chờ bé đăng nhập Google':p.google_linked?'Đã nối Google':'Hồ sơ dùng mã cũ'} · Mở hành trình →</small></button>${!p.google_linked?`<div class="login-fields"><input class="text-input" id="invite-${safe(p.id)}" type="email" autocomplete="off" placeholder="Google của bé"><button class="subtle-link" data-google-invite="${safe(p.id)}">${p.google_pending?'Sửa tài khoản Google':'Nối tài khoản Google'}</button></div>`:''}<button class="subtle-link" data-delete-profile="${safe(p.id)}">Xóa tài khoản và tiến độ</button></div>`).join('')}</div>
-    <div class="card guide-card profile-create"><h2>Thêm hồ sơ cho bé</h2><p>Nhập đúng email Google riêng của bé. Email chỉ dùng để nối tài khoản khi bé đăng nhập lần đầu; web không hiển thị email trong danh sách hồ sơ.</p><div class="login-fields"><input class="text-input" id="newProfileName" maxlength="25" placeholder="Tên của bé"><input class="text-input" id="newProfileGoogleEmail" type="email" autocomplete="off" placeholder="Tài khoản Google của bé"><button class="accent-btn" id="createProfile">Thêm hồ sơ →</button></div>${hasOld?'<label class="profile-import"><input type="checkbox" id="importOldProgress" checked> Chuyển tiến độ đang lưu trên thiết bị này vào tài khoản mới</label>':''}<p>Nếu đã học trên trang cũ, phụ huynh có thể tải bản sao ở trang cũ rồi nhập vào hồ sơ này.</p></div>
-    <div class="utility-row">${activeProfile?`<button class="outline-btn" id="backProfile">Quay lại bài học</button>${syncPending?'<button class="accent-btn" id="retrySync">Thử đồng bộ lại</button>':''}`:''}<button class="outline-btn" id="logoutAccount">Đăng xuất</button></div>`;
+function renderAccount(){return `<div class="access-gate"><span class="eyebrow">HÀNH TRÌNH CỦA BÉ</span><h1 class="page-title">Mở liên kết học riêng</h1><p class="page-intro">Dán liên kết riêng đã nhận để tiếp tục đúng tiến độ của bé trên thiết bị này.</p>
+  ${accountError?`<div class="warning" role="alert">${safe(accountError)}</div>`:''}
+  <div class="card guide-card"><label for="privateLink"><strong>Liên kết của bé</strong></label><div class="access-link-row"><input id="privateLink" class="text-input" type="url" inputmode="url" autocomplete="off" placeholder="Dán liên kết riêng ở đây"><button id="openPrivateLink" class="accent-btn">Mở bài học</button></div><p>Ai có liên kết đều có thể xem và sửa tiến độ. Phụ huynh hãy giữ liên kết này riêng tư.</p></div></div>`;}
+function openPrivateLink(){
+  const input=document.getElementById('privateLink');
+  try{const url=new URL(input.value.trim());if(url.origin!==location.origin||!/^\/start\/[a-f0-9]{64}$/.test(url.pathname))throw Error();location.assign(url.pathname);}
+  catch{accountError='Liên kết không đúng định dạng. Hãy dán đầy đủ liên kết riêng đã nhận.';setView('account');}
 }
 function completion(track, level){return data.completed[keyFor(track,level)];}
 function passed(track, level){return Boolean(completion(track,level));}
@@ -208,20 +125,17 @@ function getNext(){
 }
 function setView(view, track){
   if(!activeProfile&&view!=='account')view='account';
-  if(session?.role==='child'&&view==='parent')view='home';
   if(currentView==='cards' && view!=='cards') window.QUEST_CARDS.cancelRecognition();
   if(currentView==='game' && view!=='game') window.QUEST_GAME.leave();
   currentView = view;
   if (track) currentTrack=track;
   document.querySelectorAll('.nav-item[data-view]').forEach(b => b.classList.toggle('active',b.dataset.view===view));
-  document.querySelector('.sidebar').classList.remove('open');
-  document.getElementById('menuToggle').setAttribute('aria-expanded','false');
+  closeMobileMenu();
   const titles={home:'Tổng quan',paths:'Lộ trình học',cards:'Thẻ từ vựng',game:'Đường đua tình huống',rewards:'Bộ sưu tập',parent:'Góc phụ huynh',about:'Về chương trình',assessment:'Kiểm tra đầu vào',account:'Hồ sơ học sinh'};
   document.getElementById('crumb').innerHTML=`${titles[view] || 'Tổng quan'} <span>/ English Quest</span>`;
   const renderers={home:renderHome,paths:renderPaths,cards:window.QUEST_CARDS.render,game:window.QUEST_GAME.render,rewards:renderRewards,parent:renderParent,about:renderAbout,assessment:renderAssessment,account:renderAccount};
   document.getElementById('mainContent').innerHTML=(renderers[view]||renderHome)();
   bindView();
-  if(view==='account')renderGoogleButton();
   if(view==='cards') window.QUEST_CARDS.bind();
   if(view==='game') window.QUEST_GAME.bind();
   window.scrollTo({top:0,behavior:'smooth'});
@@ -315,8 +229,8 @@ function renderParent(){
   const readCount=cardRecords.filter(r=>r.readPass).length,writeCount=cardRecords.filter(r=>r.writePass).length,bothCount=cardRecords.filter(r=>r.readPass&&r.writePass).length;
   const games=Object.entries(data.games||{}).filter(([key])=>key.startsWith('context-')).map(([,game])=>game),gameAttempts=games.reduce((sum,g)=>sum+(Number(g.attempts)||0),0),gameBest=games.reduce((best,g)=>Math.max(best,Number(g.best)||0),0);
   return `<h1 class="page-title">Góc phụ huynh</h1><p class="page-intro">Theo dõi điểm, thời gian và mức độ tiến bộ của bé theo từng kỹ năng.</p>
-    <div class="section-head"><div><h2>Hồ sơ học tập</h2><p>Tiến độ của ${safe(data.name)} được lưu trong tài khoản riêng của học sinh.</p></div></div>
-    <div class="card guide-card"><div class="form-row"><label for="learnerName"><strong>Tên hiển thị của bé</strong></label><input id="learnerName" class="text-input" maxlength="25" value="${safe(data.name)}"><button id="saveName" class="accent-btn">Lưu tên</button></div><div class="utility-row"><button class="outline-btn" data-view="account">Đổi hồ sơ</button><button class="outline-btn" data-view="assessment">Kiểm tra lại đầu vào</button><button id="exportData" class="outline-btn">↓ Tải bản sao tiến độ</button><label class="outline-btn" for="importData">↑ Nhập bản sao</label><input id="importData" type="file" accept="application/json" class="hidden"></div><p>Khi đang trực tuyến, thay đổi được đồng bộ vào tài khoản của bé. Bản tải xuống giúp phụ huynh giữ thêm một bản sao.</p></div>
+    <div class="section-head"><div><h2>Hồ sơ học tập</h2><p>Tiến độ của ${safe(data.name)} được đồng bộ bằng liên kết riêng.</p></div></div>
+    <div class="card guide-card"><div class="form-row"><label for="learnerName"><strong>Tên hiển thị của bé</strong></label><input id="learnerName" class="text-input" maxlength="25" value="${safe(data.name)}"><button id="saveName" class="accent-btn">Lưu tên</button></div><div class="utility-row"><button class="outline-btn" data-view="assessment">Kiểm tra lại đầu vào</button><button id="exportData" class="outline-btn">↓ Tải bản sao tiến độ</button><label class="outline-btn" for="importData">↑ Nhập bản sao</label><input id="importData" type="file" accept="application/json" class="hidden"></div><p>Trang tự lưu trên máy và đồng bộ khi có mạng. Phụ huynh nên giữ thêm một bản sao và giữ kín liên kết riêng.</p>${syncPending?'<button id="retrySync" class="outline-btn">Thử đồng bộ lại</button>':''}</div>
     <div class="section-head"><div><h2>Tiến độ theo kỹ năng</h2><p>Điểm /10 là điểm luyện tập trong web, không phải điểm thi Cambridge.</p></div></div>
     <div class="track-grid">${TRACKS.map(trackCard).join('')}</div>
     <div class="section-head"><div><h2>Thẻ từ vựng</h2><p>Kết quả nhận diện lời đọc và kiểm tra chính tả từng từ.</p></div><button class="subtle-link" data-view="cards">Mở bộ thẻ →</button></div><div class="stats"><div class="stat-card"><span class="stat-icon">🎙</span><div><strong>${readCount}/96</strong><span>Từ được nhận diện đúng</span></div></div><div class="stat-card"><span class="stat-icon">✎</span><div><strong>${writeCount}/96</strong><span>Từ viết đúng</span></div></div><div class="stat-card"><span class="stat-icon">✓</span><div><strong>${bothCount}/96</strong><span>Từ luyện đủ hai cách</span></div></div></div>
@@ -336,7 +250,7 @@ function renderAbout(){return `<h1 class="page-title">Về English Quest</h1><p 
   <div class="card guide-card"><h3>Đường đua tình huống</h3><p>Trò chơi xen kẽ hiểu nghĩa, điền từ, nghe từ và đọc chuyện ngắn. Điểm tính theo độ đúng, thời gian chỉ được ghi lại. Trò chơi không thay thế bài học chính.</p></div>
   <div class="card guide-card"><h3>Kiểm tra vượt cấp</h3><p>Ở Từ vựng, Nghe và Đọc, bé có thể làm 11–12 câu ngắn thay cho bài đầy đủ. Ngân hàng nghe/đọc có 312 câu trên 12 cấp; câu được rút luân phiên và có cả dạng tự viết đáp án ngắn. Chỉ đúng toàn bộ mới mở cấp tiếp theo. Viết và Nói cần người lớn xem sản phẩm thật nên không tự động vượt cấp qua câu hỏi ngắn.</p></div>
   <div class="card guide-card"><h3>Ranh giới đánh giá</h3><p>Bài nghe dùng giọng đọc của trình duyệt. Bài nói đọc lại câu mẫu được nhận diện và chấm độ khớp nội dung; không chấm phát âm từng âm. Bài nói tự do và viết mở cần người lớn xem, không thay thế giám khảo.</p></div></div>
-  <div class="section-head"><div><h2>Dữ liệu học tập</h2></div></div><div class="card guide-card"><p>Trang lưu tên hiển thị, mã nhận dạng Google và tiến độ trên máy chủ; khi chưa đồng bộ, trình duyệt giữ bản tạm. Email của bé chỉ được giữ dưới dạng giá trị băm trong lúc chờ đăng nhập lần đầu. Phiên đăng nhập dùng cookie chỉ máy chủ đọc. Phụ huynh có thể tải bản sao hoặc xóa tài khoản và tiến độ trong mục Hồ sơ. Khi chấm bài nói, âm thanh được gửi tới Cloudflare AI để nhận diện; web không lưu bản ghi âm. Nhận diện từ vựng bằng trình duyệt có thể gửi âm thanh tới dịch vụ của trình duyệt.</p></div>
+  <div class="section-head"><div><h2>Dữ liệu học tập</h2></div></div><div class="card guide-card"><p>Tiến độ được lưu trên máy chủ và đồng bộ giữa các thiết bị dùng cùng liên kết riêng. Trình duyệt giữ bản tạm khi chưa đồng bộ. Ai có liên kết đều có thể xem và sửa tiến độ, nên phụ huynh cần giữ kín. Có thể tải bản sao trong Góc phụ huynh. Khi chấm bài nói, âm thanh được gửi tới Cloudflare AI để nhận diện; web không lưu bản ghi âm. Nhận diện từ vựng bằng trình duyệt có thể gửi âm thanh tới dịch vụ của trình duyệt.</p></div>
   <div class="section-head"><div><h2>Tài liệu tham chiếu</h2></div></div><div class="card guide-card source-links"><p>Nội dung câu hỏi, hội thoại và truyện trên web được viết mới. Cấu trúc kỹ năng tham chiếu từ:</p><ul><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/movers/format/" target="_blank" rel="noopener">Cambridge English · A1 Movers exam format</a></li><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/flyers/format/" target="_blank" rel="noopener">Cambridge English · A2 Flyers exam format</a></li><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/flyers/preparation/" target="_blank" rel="noopener">Cambridge English · Flyers preparation resources</a></li></ul><p>English Quest không liên kết, được chứng nhận hay bảo trợ bởi Cambridge English.</p></div>`;}
 
 function shuffleOptions(items){const out=[...items];for(let i=out.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[out[i],out[j]]=[out[j],out[i]];}return out;}
@@ -482,7 +396,7 @@ async function wavFromRecording(blob){
 }
 async function assessSpeech(level,sample,blob){
   const wav=await wavFromRecording(blob);
-  const response=await fetch(`/api/speech/assess?profile=${encodeURIComponent(activeProfile.id)}&level=${level}&sample=${sample}`,{method:'POST',headers:{'content-type':'audio/wav'},body:wav,credentials:'same-origin',cache:'no-store'});
+  const response=await fetch(`/api/speech/assess?level=${level}&sample=${sample}`,{method:'POST',headers:{'content-type':'audio/wav'},body:wav,credentials:'same-origin',cache:'no-store'});
   const result=await response.json();if(!response.ok)throw Error(result.error||'Không chấm được bài nói.');return result;
 }
 function normalized(s){return String(s).trim().toLowerCase().replace(/[’']/g,'').replace(/[.!?,]/g,'').replace(/\s+/g,' ');}
@@ -600,7 +514,7 @@ async function importData(file){
         clean.games[key]={best,last,duration:Math.floor(duration),attempts:Math.floor(attempts),bestStreak:Math.floor(bestStreak),lastMistakes:Array.isArray(g.lastMistakes)?g.lastMistakes.slice(0,8).map(m=>({prompt:String(m?.prompt||'').slice(0,300),context:String(m?.context||'').slice(0,500),answer:String(m?.answer||'').slice(0,100)})):[],date:typeof g.date==='string'?g.date.slice(0,40):''};
       }
     }
-    if(!confirm('Nhập bản sao sẽ thay thế tiến độ trong tài khoản học sinh này. Tiếp tục?'))return;
+    if(!confirm('Nhập bản sao sẽ thay thế tiến độ hiện tại của bé. Tiếp tục?'))return;
     data=clean;persist();setView('parent');alert('Đã nhập tiến độ.');
   }catch(_){alert('Không đọc được tệp tiến độ hợp lệ.');}
 }
@@ -612,31 +526,24 @@ function bindView(){
   main.querySelectorAll('[data-skip]').forEach(b=>b.addEventListener('click',()=>{const [track,level]=b.dataset.skip.split(':');openLesson(track,Number(level),'skip');}));
   main.querySelectorAll('[data-assess]').forEach(b=>b.addEventListener('click',()=>startPlacement(b.dataset.assess)));
   main.querySelectorAll('[data-assess-skip]').forEach(b=>b.addEventListener('click',()=>{const track=b.dataset.assessSkip;data.placement.results[track]={startLevel:1,score:null,questions:0,date:new Date().toISOString()};data.placement.starts[track]=1;data.placement.done=['vocab','listening','reading','writing'].every(id=>data.placement.results[id]);persist();setView('assessment');}));
-  main.querySelectorAll('[data-profile]').forEach(b=>b.addEventListener('click',()=>selectProfile(b.dataset.profile)));
-  main.querySelectorAll('[data-reset-code]').forEach(b=>b.addEventListener('click',()=>resetCode(b.dataset.resetCode)));
-  main.querySelectorAll('[data-google-invite]').forEach(b=>b.addEventListener('click',()=>updateGoogleInvite(b.dataset.googleInvite)));
-  main.querySelectorAll('[data-delete-profile]').forEach(b=>b.addEventListener('click',()=>deleteProfile(b.dataset.deleteProfile)));
-  document.getElementById('createProfile')?.addEventListener('click',createProfile);
-  document.getElementById('loginAccount')?.addEventListener('click',login);
-  document.getElementById('loginCode')?.addEventListener('keydown',e=>{if(e.key==='Enter')login()});
-  document.getElementById('setupParent')?.addEventListener('click',setupParent);
-  document.getElementById('recoverParent')?.addEventListener('click',recoverParent);
-  document.getElementById('logoutAccount')?.addEventListener('click',logout);
-  document.getElementById('retryAccounts')?.addEventListener('click',bootstrapAccount);
-  document.getElementById('retrySync')?.addEventListener('click',()=>{accountError='';void flushProfile();setView('account');});
-  document.getElementById('backProfile')?.addEventListener('click',()=>setView(data.placement?.done?'home':'assessment'));
+  document.getElementById('openPrivateLink')?.addEventListener('click',openPrivateLink);
+  document.getElementById('privateLink')?.addEventListener('keydown',e=>{if(e.key==='Enter')openPrivateLink()});
+  document.getElementById('retrySync')?.addEventListener('click',()=>{void flushProfile();setView('parent');});
   document.getElementById('saveAssessmentName')?.addEventListener('click',()=>{const name=document.getElementById('assessmentName').value.trim();if(!name)return;data.name=name.slice(0,25);persist();setView('assessment');});
   document.getElementById('saveName')?.addEventListener('click',()=>{const name=document.getElementById('learnerName').value.trim();if(!name)return;data.name=name.slice(0,25);document.getElementById('profileToggle').textContent=data.name.charAt(0).toUpperCase();persist();setView('parent');});
   document.getElementById('exportData')?.addEventListener('click',exportData);
   document.getElementById('importData')?.addEventListener('change',e=>importData(e.target.files[0]));
 }
 document.querySelectorAll('.sidebar [data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
-document.getElementById('menuToggle').addEventListener('click',()=>{const sidebar=document.querySelector('.sidebar');sidebar.classList.toggle('open');document.getElementById('menuToggle').setAttribute('aria-expanded',sidebar.classList.contains('open'));});
+function closeMobileMenu(){document.querySelector('.sidebar').classList.remove('open');document.body.classList.remove('menu-open');document.getElementById('menuToggle').setAttribute('aria-expanded','false');}
+document.getElementById('menuToggle').addEventListener('click',()=>{const sidebar=document.querySelector('.sidebar'),open=!sidebar.classList.contains('open');sidebar.classList.toggle('open',open);document.body.classList.toggle('menu-open',open);document.getElementById('menuToggle').setAttribute('aria-expanded',String(open));});
+document.getElementById('closeMenu').addEventListener('click',closeMobileMenu);
+document.getElementById('menuShade').addEventListener('click',closeMobileMenu);
 document.getElementById('closeLesson').addEventListener('click',closeLesson);
 document.getElementById('soundToggle').addEventListener('click',()=>{data.sound=!data.sound;persist();updateSound();});
-document.getElementById('profileToggle').addEventListener('click',()=>setView('account'));
+document.getElementById('profileToggle').addEventListener('click',()=>setView('parent'));
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&lesson)closeLesson();});
 function updateSound(){const b=document.getElementById('soundToggle');b.textContent=data.sound?'♫':'♩';b.title=data.sound?'Tắt âm thanh':'Bật âm thanh';}
 document.getElementById('todayLabel').textContent=new Date().toLocaleDateString('vi-VN',{weekday:'long',day:'numeric',month:'long'});
-updateSound();setView('account');void bootstrapAccount();
+updateSound();setView('account');void bootstrapSolo();
 

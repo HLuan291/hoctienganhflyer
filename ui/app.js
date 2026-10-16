@@ -55,7 +55,10 @@ function mergeProgress(remote,local){
   for(const [k,v] of Object.entries(local.cards||{})){const old=out.cards[k]||{};out.cards[k]={...old,...v,readPass:Boolean(old.readPass||v.readPass),writePass:Boolean(old.writePass||v.writePass),readScore:Math.max(old.readScore||0,v.readScore||0),writeScore:Math.max(old.writeScore||0,v.writeScore||0),readAttempts:Math.max(old.readAttempts||0,v.readAttempts||0),writeAttempts:Math.max(old.writeAttempts||0,v.writeAttempts||0)};}
   for(const [k,v] of Object.entries(local.games||{})){const old=out.games[k]||{};out.games[k]={...old,...v,best:Math.max(old.best||0,v.best||0),attempts:Math.max(old.attempts||0,v.attempts||0)};}
   out.questionTurns={...remote.questionTurns};for(const [k,v] of Object.entries(local.questionTurns||{}))out.questionTurns[k]=Math.max(Number(out.questionTurns[k])||0,Number(v)||0);
-  out.placement=local.placement||remote.placement;
+  const remotePlacement=remote.placement||{},localPlacement=local.placement||{};
+  out.placement={...remotePlacement,...localPlacement,done:Boolean(remotePlacement.done||localPlacement.done),starts:{...(remotePlacement.starts||{})},results:{...(remotePlacement.results||{})}};
+  for(const [track,start] of Object.entries(localPlacement.starts||{}))out.placement.starts[track]=Math.max(Number(out.placement.starts[track])||1,Number(start)||1);
+  for(const [track,result] of Object.entries(localPlacement.results||{})){const old=out.placement.results[track];if(!old||String(result?.date||'')>=String(old?.date||''))out.placement.results[track]=result;}
   return out;
 }
 async function flushProfile(){

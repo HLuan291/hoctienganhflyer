@@ -45,6 +45,7 @@ for(const pack of packs){
   }
 }
 assert.equal(context.nextQuestionTurn('skip','vocab',1),0);
-assert.equal(context.nextQuestionTurn('skip','vocab',1),1);
+assert.equal(context.nextQuestionTurn('lesson','vocab',1),1);
+assert.equal(context.nextQuestionTurn('placement','vocab',1),2);
 console.log(`Question bank: 12 levels, 48 new passage questions, ${checked} generated questions checked.`);
 

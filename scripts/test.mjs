@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {generateKeyPair,exportJWK,SignJWT} from 'jose';
 import worker from '../dist/index.js';
 const db=new DatabaseSync(':memory:');db.exec(await readFile(new URL('../schema.sql',import.meta.url),'utf8'));
+const legacyDb=new DatabaseSync(':memory:');
+legacyDb.exec((await readFile(new URL('../schema.sql',import.meta.url),'utf8')).replace(/^  google_(?:sub|email_hash) TEXT,\r?\n/gm,'').replace(/^CREATE UNIQUE INDEX IF NOT EXISTS users_google_.*\r?\n/gm,''));
+legacyDb.exec(await readFile(new URL('../migrations/001_google_auth.sql',import.meta.url),'utf8'));
+assert.ok(legacyDb.prepare('PRAGMA table_info(users)').all().some(column=>column.name==='google_sub'));
+assert.ok(legacyDb.prepare('PRAGMA table_info(users)').all().some(column=>column.name==='google_email_hash'));
 function prepared(sql,args=[]){const s=db.prepare(sql);return {bind(...next){return prepared(sql,next)},async first(){return s.get(...args)},async all(){return {results:s.all(...args)}},async run(){return {meta:{changes:s.run(...args).changes}}}}}
 const env={AUTH_PEPPER:'testing-pepper-with-at-least-thirty-two-characters',SETUP_KEY:'testing-setup-key-with-enough-entropy',DB:{
   prepare(sql){return prepared(sql)},
@@ -52,5 +59,34 @@ const recoveredCookie=recoveredLogin.cookie.split(';')[0];
 assert.equal((await call('/api/profiles/'+other.body.id,{method:'DELETE',cookie:recoveredCookie,body:{}})).status,200);
 assert.equal((await call('/api/profiles/'+other.body.id,{cookie:recoveredCookie})).status,404);
 assert.equal((await worker.fetch(new Request(origin+'/api/login',{method:'POST',headers:{origin:'https://evil.example','content-type':'application/json'},body:'{}'}),env)).status,403);
-console.log('Account setup, child login, isolation, save, conflict, code reset, logout, recovery, deletion and origin check passed.');
+const {publicKey,privateKey}=await generateKeyPair('RS256');
+const jwk=await exportJWK(publicKey);jwk.kid='test-key';jwk.alg='RS256';jwk.use='sig';
+env.GOOGLE_TEST_JWKS=JSON.stringify({keys:[jwk]});env.GOOGLE_CLIENT_ID='english-quest-client.apps.googleusercontent.com';
+env.PARENT_GOOGLE_EMAIL_HASH=createHash('sha256').update(`${env.AUTH_PEPPER}:google-email:parent@example.com`).digest('hex');
+async function googleToken(email,sub,{aud=env.GOOGLE_CLIENT_ID,issuer='https://accounts.google.com',verified=true}={}){
+  return new SignJWT({email,email_verified:verified,sub,name:'Phụ huynh'}).setProtectedHeader({alg:'RS256',kid:'test-key'}).setIssuer(issuer).setAudience(aud).setIssuedAt().setExpirationTime('5m').sign(privateKey);
+}
+const googleSignIn=credential=>call('/api/google/login',{method:'POST',body:{credential}});
+assert.equal((await call('/api/google/config').then(r=>r.json())).clientId,env.GOOGLE_CLIENT_ID);
+assert.equal((await googleSignIn(await googleToken('stranger@example.com','stranger'))).status,403);
+assert.equal((await googleSignIn(await googleToken('parent@example.com','parent-sub',{aud:'wrong-client'}))).status,401);
+assert.equal((await googleSignIn(await googleToken('parent@example.com','parent-sub',{issuer:'https://evil.example'}))).status,401);
+assert.equal((await googleSignIn(await googleToken('parent@example.com','parent-sub',{verified:false}))).status,401);
+const tampered=await googleToken('parent@example.com','parent-sub');
+const parts=tampered.split('.');parts[2]=(parts[2][0]==='A'?'B':'A')+parts[2].slice(1);
+assert.equal((await googleSignIn(parts.join('.'))).status,401);
+const googleParent=await json(await googleSignIn(await googleToken('parent@example.com','parent-sub')));
+assert.equal(googleParent.status,200);const googleParentCookie=googleParent.cookie.split(';')[0];
+assert.equal((await call('/api/session',{cookie:googleParentCookie}).then(r=>r.json())).role,'parent');
+assert.equal((await googleSignIn(await googleToken('parent@example.com','different-sub'))).status,403);
+const invited=await json(await call('/api/profiles',{method:'POST',cookie:googleParentCookie,body:{name:'Bé An',googleEmail:'wrong@example.com',data:{...seed,name:'Bé An',history:[]}}}));
+assert.equal(invited.status,201);assert.equal(invited.body.accessCode,undefined);
+assert.equal((await googleSignIn(await googleToken('child@example.com','child-sub'))).status,403);
+assert.equal((await call(`/api/profiles/${invited.body.id}/google-invite`,{method:'PUT',cookie:googleParentCookie,body:{googleEmail:'child@example.com'}})).status,200);
+const googleChild=await json(await googleSignIn(await googleToken('child@example.com','child-sub')));
+assert.equal(googleChild.status,200);const googleChildCookie=googleChild.cookie.split(';')[0];
+assert.equal((await call('/api/profiles',{cookie:googleChildCookie}).then(r=>r.json())).profiles.length,1);
+assert.equal((await call('/api/profiles/'+created.body.id,{cookie:googleChildCookie})).status,404);
+assert.equal((await call(`/api/profiles/${invited.body.id}/google-invite`,{method:'PUT',cookie:googleParentCookie,body:{googleEmail:'another@example.com'}})).status,404);
+console.log('Legacy access and Google parent/child identity, invitation, isolation and token checks passed.');
 

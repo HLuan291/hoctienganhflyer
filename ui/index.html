@@ -10,10 +10,13 @@
   <link rel="stylesheet" href="./cards.css">
   <link rel="stylesheet" href="./game.css">
   <link rel="stylesheet" href="./redesign.css">
+  <link rel="stylesheet" href="./mobile.css">
 </head>
 <body>
+  <div class="menu-shade" id="menuShade" aria-hidden="true"></div>
   <div class="app-shell">
     <aside class="sidebar" aria-label="Điều hướng chính">
+      <button class="menu-close" id="closeMenu" aria-label="Đóng menu">×</button>
       <a class="brand" href="#home" aria-label="English Quest, về trang chủ"><span class="brand-mark">✦</span><span><strong>English Quest</strong><small>Movers → Flyers</small></span></a>
       <div class="side-caption">KHÁM PHÁ</div>
       <nav class="nav-list">
@@ -35,7 +38,7 @@
       <header class="topbar">
         <button class="mobile-menu" id="menuToggle" aria-label="Mở menu" aria-expanded="false">☰</button>
         <div class="crumb" id="crumb">Tổng quan <span> / Hành trình của bé</span></div>
-        <div class="top-actions"><span class="today-pill" id="todayLabel"></span><span id="syncState" class="sync-state" role="status"></span><button id="soundToggle" class="round-action" title="Bật hoặc tắt âm thanh" aria-label="Bật hoặc tắt âm thanh">♫</button><button id="profileToggle" class="avatar" aria-label="Chọn hồ sơ học sinh">E</button></div>
+        <div class="top-actions"><span class="today-pill" id="todayLabel"></span><span id="syncState" class="sync-state" role="status"></span><button id="soundToggle" class="round-action" title="Bật hoặc tắt âm thanh" aria-label="Bật hoặc tắt âm thanh">♫</button><button id="profileToggle" class="avatar" aria-label="Góc phụ huynh">E</button></div>
       </header>
       <main id="mainContent" tabindex="-1"></main>
     </div>

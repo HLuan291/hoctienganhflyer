@@ -135,8 +135,8 @@ async function api(request,env,url){
   }
   if(url.pathname==='/api/speech/assess'&&request.method==='POST'){
     if(!env.AI)return error('Chấm nói chưa được cấu hình.',503);
-    const profileId=url.searchParams.get('profile'),level=Number(url.searchParams.get('level'));
-    if(!/^[a-f0-9-]{36}$/.test(profileId||'')||!Number.isInteger(level)||level<1||level>SPEAKING_MODELS.length)return error('Bài nói không hợp lệ.',400);
+    const profileId=url.searchParams.get('profile'),level=Number(url.searchParams.get('level')),sample=Number(url.searchParams.get('sample')||0);
+    if(!/^[a-f0-9-]{36}$/.test(profileId||'')||!Number.isInteger(level)||level<1||level>SPEAKING_MODELS.length||!Number.isInteger(sample)||sample<0||sample>=SPEAKING_MODELS[level-1].length)return error('Bài nói không hợp lệ.',400);
     const child=await env.DB.prepare("SELECT id,parent_id FROM users WHERE id=? AND role='child'").bind(profileId).first();
     if(!permitted(user,child))return error('Không tìm thấy học sinh.',404);
     if(Number(request.headers.get('content-length'))>800000)return error('Bản ghi quá dài; tối đa 20 giây.',413);
@@ -150,8 +150,8 @@ async function api(request,env,url){
     try{result=await env.AI.run('@cf/openai/whisper-large-v3-turbo',{audio:base64Audio(audio),task:'transcribe',language:'en',vad_filter:true});}
     catch{return error('Dịch vụ nhận diện đang bận. Hãy thử lại sau.',503)}
     const transcript=typeof result?.text==='string'?result.text.trim().slice(0,500):'';
-    const assessment=speechScore(SPEAKING_MODELS[level-1],transcript);
-    return reply({transcript,reference:SPEAKING_MODELS[level-1],...assessment,remaining:25-Number((await env.DB.prepare('SELECT attempts FROM speech_usage WHERE user_id=? AND day_utc=?').bind(child.id,day).first())?.attempts||25)});
+    const reference=SPEAKING_MODELS[level-1][sample],assessment=speechScore(reference,transcript);
+    return reply({transcript,reference,...assessment,remaining:25-Number((await env.DB.prepare('SELECT attempts FROM speech_usage WHERE user_id=? AND day_utc=?').bind(child.id,day).first())?.attempts||25)});
   }
   const list=url.pathname==='/api/profiles',match=/^\/api\/profiles\/([a-f0-9-]{36})$/.exec(url.pathname),codeMatch=/^\/api\/profiles\/([a-f0-9-]{36})\/code$/.exec(url.pathname);
   if(list&&request.method==='GET'){

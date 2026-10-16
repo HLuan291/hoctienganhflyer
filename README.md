@@ -14,11 +14,11 @@ Trang đang chạy: https://english-quest-family.snowy-fog-8e71.workers.dev/
 
 ## Dữ liệu và triển khai
 
-Tiến độ hiện có nằm trong bảng `progress` và được giữ nguyên khi chuyển từ tài khoản Google sang liên kết riêng. Bảng `solo_links` chỉ giữ **giá trị băm** của khóa trong liên kết. Trình duyệt giữ khóa trong cookie `HttpOnly` để đồng bộ, và giữ bản tạm trong `localStorage` khi có thay đổi chưa gửi được. Nếu hai thiết bị sửa cùng lúc, máy chủ yêu cầu hợp nhất thay vì ghi đè im lặng.
+Tiến độ hiện có nằm trong bảng `progress` và được giữ nguyên khi chuyển từ tài khoản Google sang liên kết riêng. Bảng `solo_links` chỉ giữ **giá trị băm** của khóa trong liên kết. Trình duyệt giữ khóa trong cookie `HttpOnly` để đồng bộ, và giữ bản tiến độ gần nhất trong `localStorage` để có thể học khi mất mạng rồi gửi thay đổi khi kết nối lại. Nếu hai thiết bị sửa cùng lúc, máy chủ yêu cầu hợp nhất thay vì ghi đè im lặng.
 
 Trước khi triển khai bản này trên D1 cũ, áp dụng `migrations/003_solo_links.sql` một lần. Với D1 mới, `schema.sql` đã gồm bảng đó. Người quản lý tạo khóa ngẫu nhiên 32 byte, lưu bản gốc ở nơi riêng tư, rồi chèn giá trị SHA-256 của khóa và ID hồ sơ học sinh vào `solo_links`. Liên kết có dạng `https://<host>/start/<khóa 64 ký tự hex>`. Không đưa khóa gốc vào mã nguồn hay biến công khai. Giữ nguyên D1 và các secret máy chủ khi triển khai lại.
 
-Chạy `npm run build`, `node --test scripts/test.mjs scripts/test-questions.mjs`, rồi `npx wrangler deploy` trên tài khoản Cloudflare đang sở hữu Worker. Cấu hình đăng nhập cũ được giữ trong mã để có thể khôi phục dữ liệu, nhưng các API tài khoản trả lỗi `410` ở bản chạy hiện tại. Không bật `LEGACY_AUTH_ENABLED` trên bản dành cho bé.
+Chạy `npm run build`, `node --test scripts/test.mjs scripts/test-questions.mjs scripts/test-offline.mjs`, rồi `npx wrangler deploy` trên tài khoản Cloudflare đang sở hữu Worker. Cấu hình đăng nhập cũ được giữ trong mã để có thể khôi phục dữ liệu, nhưng các API tài khoản trả lỗi `410` ở bản chạy hiện tại. Không bật `LEGACY_AUTH_ENABLED` trên bản dành cho bé.
 
 ## Giới hạn
 

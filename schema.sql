@@ -5,10 +5,14 @@ CREATE TABLE IF NOT EXISTS users (
   parent_id TEXT REFERENCES users(id),
   display_name TEXT NOT NULL,
   code_hash TEXT NOT NULL,
+  google_sub TEXT,
+  google_email_hash TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS users_parent_idx ON users(parent_id);
 CREATE UNIQUE INDEX IF NOT EXISTS users_single_parent_idx ON users(role) WHERE role='parent';
+CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users(google_sub) WHERE google_sub IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS users_google_email_hash_idx ON users(google_email_hash) WHERE google_email_hash IS NOT NULL;
 CREATE TABLE IF NOT EXISTS progress (
   user_id TEXT PRIMARY KEY REFERENCES users(id),
   data_json TEXT NOT NULL,

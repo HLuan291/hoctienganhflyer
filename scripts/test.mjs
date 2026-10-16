@@ -39,17 +39,19 @@ assert.equal(childLogin.status,200);const childCookie=childLogin.cookie.split(';
 let aiCalls=0;
 env.AI={async run(model,request){aiCalls++;assert.equal(model,'@cf/openai/whisper-large-v3-turbo');assert.equal(request.language,'en');assert.ok(request.audio.length>40000);return {text:'I found my schoolbag in the library. It was next to a blue chair. My homework was inside.'}}};
 const wav=new Uint8Array(32044);wav.set(Buffer.from('RIFF'),0);wav.set(Buffer.from('WAVE'),8);
-async function speech(profile,level,{cookie=childCookie,audio=wav,originHeader=origin}={}){
-  return worker.fetch(new Request(`${origin}/api/speech/assess?profile=${profile}&level=${level}`,{method:'POST',headers:{origin:originHeader,'content-type':'audio/wav',...(cookie?{cookie}:{})},body:audio}),env);
+async function speech(profile,level,{cookie=childCookie,audio=wav,originHeader=origin,sample=0}={}){
+  return worker.fetch(new Request(`${origin}/api/speech/assess?profile=${profile}&level=${level}&sample=${sample}`,{method:'POST',headers:{origin:originHeader,'content-type':'audio/wav',...(cookie?{cookie}:{})},body:audio}),env);
 }
 assert.equal((await speech(created.body.id,1,{cookie:null})).status,401);
 assert.equal((await speech(other.body.id,1)).status,404);
 assert.equal((await speech(created.body.id,1,{originHeader:'https://evil.example'})).status,403);
 assert.equal((await speech(created.body.id,1,{audio:new Uint8Array(32)})).status,400);
+assert.equal((await speech(created.body.id,1,{sample:2})).status,400);
 const spoken=await json(await speech(created.body.id,1));assert.equal(spoken.status,200);assert.equal(spoken.body.score,10);assert.equal(spoken.body.remaining,24);
+const alternate=await json(await speech(created.body.id,1,{sample:1}));assert.equal(alternate.status,200);assert.ok(alternate.body.reference.startsWith('Mia went'));assert.ok(alternate.body.score<10);
 env.AI.run=async()=>{aiCalls++;return {text:'The cat is on the moon.'}};
 const missed=await json(await speech(created.body.id,1));assert.equal(missed.status,200);assert.ok(missed.body.score<8);
-for(let i=0;i<23;i++)assert.equal((await speech(created.body.id,1)).status,200);
+for(let i=0;i<22;i++)assert.equal((await speech(created.body.id,1)).status,200);
 assert.equal((await speech(created.body.id,1)).status,429);assert.equal(aiCalls,25);
 assert.equal((await call('/api/session',{cookie:childCookie}).then(r=>r.json())).role,'child');
 assert.equal((await call('/api/profiles',{cookie:childCookie}).then(r=>r.json())).profiles.length,1);

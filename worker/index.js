@@ -1,3 +1,4 @@
+import {createRemoteJWKSet, createLocalJWKSet, jwtVerify} from 'jose';
 // Cloudflare Worker for a family-owned learning site. No ChatGPT identity is used.
 // ASSETS is inserted by scripts/build.mjs.
 const reply=(body,status=200,extra={})=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff',...extra}});
@@ -12,6 +13,17 @@ const equal=(a,b)=>{if(a.length!==b.length)return false;let x=0;for(let i=0;i<a.
 const normalizeCode=x=>String(x||'').toUpperCase().replace(/[\s-]/g,'');
 const code=()=>{const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',random=crypto.getRandomValues(new Uint8Array(20));return Array.from(random,n=>alphabet[n%alphabet.length]).join('').match(/.{1,5}/g).join('-');};
 const hashCode=(env,username,credential)=>sha(`${env.AUTH_PEPPER}:${username}:${normalizeCode(credential)}`);
+const emailHash=(env,email)=>sha(`${env.AUTH_PEPPER}:google-email:${email}`);
+const validEmail=x=>typeof x==='string'&&x.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x);
+const googleKeys=createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
+async function googleIdentity(env,credential){
+  if(!env.GOOGLE_CLIENT_ID||typeof credential!=='string'||credential.length>10000)throw Error('Google chưa được cấu hình hoặc thông tin đăng nhập không hợp lệ.');
+  const keys=env.GOOGLE_TEST_JWKS?createLocalJWKSet(JSON.parse(env.GOOGLE_TEST_JWKS)):googleKeys;
+  const {payload}=await jwtVerify(credential,keys,{audience:env.GOOGLE_CLIENT_ID,issuer:['https://accounts.google.com','accounts.google.com'],algorithms:['RS256']});
+  const email=String(payload.email||'').trim().toLowerCase();
+  if(payload.email_verified!==true||!validEmail(email)||typeof payload.sub!=='string'||!payload.sub||payload.sub.length>255)throw Error('Tài khoản Google chưa xác minh email.');
+  return {sub:payload.sub,email,name:String(payload.given_name||payload.name||'Phụ huynh').trim().slice(0,25)||'Phụ huynh'};
+}
 const cookie=(token,secure)=>`quest_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/api; Max-Age=2592000${secure?'; Secure':''}`;
 const clearCookie=secure=>`quest_session=; HttpOnly; SameSite=Lax; Path=/api; Max-Age=0${secure?'; Secure':''}`;
 const assetType=p=>p.endsWith('.html')?'text/html; charset=utf-8':p.endsWith('.css')?'text/css; charset=utf-8':p.endsWith('.js')?'text/javascript; charset=utf-8':p.endsWith('.svg')?'image/svg+xml':'application/octet-stream';
@@ -36,6 +48,36 @@ async function api(request,env,url){
   }
   if(url.pathname==='/api/setup/status'&&request.method==='GET'){
     const parent=await env.DB.prepare("SELECT id FROM users WHERE role='parent' LIMIT 1").first();return reply({needed:!parent});
+  }
+  if(url.pathname==='/api/google/config'&&request.method==='GET')return reply({clientId:env.GOOGLE_CLIENT_ID||''});
+  if(url.pathname==='/api/google/login'&&request.method==='POST'){
+    if(!env.GOOGLE_CLIENT_ID||!env.PARENT_GOOGLE_EMAIL_HASH)return error('Đăng nhập Google chưa được cấu hình.',503);
+    let identity;
+    try{identity=await googleIdentity(env,(await bodyOf(request)).credential)}catch{return error('Không xác minh được tài khoản Google. Hãy thử lại.',401)}
+    let user=await env.DB.prepare('SELECT id,role,display_name,username FROM users WHERE google_sub=?').bind(identity.sub).first();
+    if(!user){
+      const hash=await emailHash(env,identity.email);
+      const isParent=equal(hash,env.PARENT_GOOGLE_EMAIL_HASH);
+      if(isParent){
+        const parent=await env.DB.prepare("SELECT id,google_sub FROM users WHERE role='parent' LIMIT 1").first();
+        if(parent){
+          if(parent.google_sub)return error('Tài khoản phụ huynh đã nối với Google khác.',403);
+          await env.DB.prepare('UPDATE users SET google_sub=? WHERE id=? AND google_sub IS NULL').bind(identity.sub,parent.id).run();
+          user=await env.DB.prepare('SELECT id,role,display_name,username FROM users WHERE id=?').bind(parent.id).first();
+        }else{
+          const id=crypto.randomUUID(),username=`parent-${id.slice(0,8)}`,now=new Date().toISOString();
+          await env.DB.prepare('INSERT INTO users (id,username,role,parent_id,display_name,code_hash,google_sub,created_at) VALUES (?,?,?,?,?,?,?,?)').bind(id,username,'parent',null,identity.name,await hashCode(env,username,code()),identity.sub,now).run();
+          user={id,role:'parent',display_name:identity.name,username};
+        }
+      }else{
+        const invited=await env.DB.prepare("SELECT id,role,display_name,username FROM users WHERE google_email_hash=? AND role='child'").bind(hash).first();
+        if(!invited)return error('Tài khoản Google này chưa được phụ huynh thêm vào.',403);
+        await env.DB.prepare('UPDATE users SET google_sub=?,google_email_hash=NULL WHERE id=? AND google_sub IS NULL').bind(identity.sub,invited.id).run();
+        user=invited;
+      }
+    }
+    await env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()).run();
+    return reply({role:user.role,name:user.display_name},200,{'set-cookie':await newSession(env,user.id,secure)});
   }
   if(url.pathname==='/api/setup'&&request.method==='POST'){
     const parent=await env.DB.prepare("SELECT id FROM users WHERE role='parent' LIMIT 1").first();if(parent)return error('Tài khoản phụ huynh đã được tạo.',409);
@@ -78,21 +120,33 @@ async function api(request,env,url){
   }
   const list=url.pathname==='/api/profiles',match=/^\/api\/profiles\/([a-f0-9-]{36})$/.exec(url.pathname),codeMatch=/^\/api\/profiles\/([a-f0-9-]{36})\/code$/.exec(url.pathname);
   if(list&&request.method==='GET'){
-    const result=user.role==='parent'?await env.DB.prepare("SELECT id,display_name AS name,username,created_at FROM users WHERE parent_id=? AND role='child' ORDER BY created_at ASC").bind(user.id).all():await env.DB.prepare('SELECT id,display_name AS name,username,created_at FROM users WHERE id=?').bind(user.id).all();
+    const result=user.role==='parent'?await env.DB.prepare("SELECT id,display_name AS name,username,created_at,google_email_hash IS NOT NULL AS google_pending,google_sub IS NOT NULL AS google_linked FROM users WHERE parent_id=? AND role='child' ORDER BY created_at ASC").bind(user.id).all():await env.DB.prepare('SELECT id,display_name AS name,username,created_at FROM users WHERE id=?').bind(user.id).all();
     return reply({profiles:result.results||[]});
   }
   if(list&&request.method==='POST'){
     if(user.role!=='parent')return error('Chỉ phụ huynh tạo tài khoản học sinh.',403);
-    const body=await bodyOf(request),name=String(body.name||'').trim(),username=String(body.username||'').trim().toLowerCase();
-    if(!validName(name)||!validUsername(username)||!validData(body.data))return error('Thông tin học sinh không hợp lệ.',400);
+    const body=await bodyOf(request),name=String(body.name||'').trim(),googleEmail=String(body.googleEmail||'').trim().toLowerCase(),googleMode=Boolean(googleEmail),username=googleMode?`learner-${crypto.randomUUID().slice(0,8)}`:String(body.username||'').trim().toLowerCase();
+    if(!validName(name)||!validUsername(username)||!validData(body.data)||googleMode&&!validEmail(googleEmail))return error('Thông tin học sinh không hợp lệ.',400);
+    if(googleMode&&!env.GOOGLE_CLIENT_ID)return error('Đăng nhập Google chưa được cấu hình.',503);
+    if(googleMode&&equal(await emailHash(env,googleEmail),env.PARENT_GOOGLE_EMAIL_HASH||''))return error('Cần dùng tài khoản Google riêng của bé.',400);
     const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE parent_id=? AND role='child'").bind(user.id).first();if(count.n>=10)return error('Tối đa 10 tài khoản học sinh.',400);
     const existing=await env.DB.prepare('SELECT id FROM users WHERE username=?').bind(username).first();if(existing)return error('Tên đăng nhập đã được dùng.',409);
     const id=crypto.randomUUID(),now=new Date().toISOString(),accessCode=code(),data={...body.data,name};
     await env.DB.batch([
-      env.DB.prepare('INSERT INTO users (id,username,role,parent_id,display_name,code_hash,created_at) VALUES (?,?,?,?,?,?,?)').bind(id,username,'child',user.id,name,await hashCode(env,username,accessCode),now),
+      env.DB.prepare('INSERT INTO users (id,username,role,parent_id,display_name,code_hash,google_email_hash,created_at) VALUES (?,?,?,?,?,?,?,?)').bind(id,username,'child',user.id,name,await hashCode(env,username,googleMode?code():accessCode),googleMode?await emailHash(env,googleEmail):null,now),
       env.DB.prepare('INSERT INTO progress (user_id,data_json,revision,updated_at) VALUES (?,?,0,?)').bind(id,JSON.stringify(data),now)
     ]);
-    return reply({id,name,username,accessCode,revision:0},201);
+    return reply({id,name,username,googlePending:googleMode,...(googleMode?{}:{accessCode}),revision:0},201);
+  }
+  const inviteMatch=/^\/api\/profiles\/([a-f0-9-]{36})\/google-invite$/.exec(url.pathname);
+  if(inviteMatch&&request.method==='PUT'){
+    if(user.role!=='parent'||!env.GOOGLE_CLIENT_ID)return error('Không thể nối Google.',403);
+    const child=await env.DB.prepare("SELECT id FROM users WHERE id=? AND parent_id=? AND role='child' AND google_sub IS NULL").bind(inviteMatch[1],user.id).first();
+    if(!child)return error('Không tìm thấy học sinh chưa nối Google.',404);
+    const email=String((await bodyOf(request)).googleEmail||'').trim().toLowerCase();
+    if(!validEmail(email)||equal(await emailHash(env,email),env.PARENT_GOOGLE_EMAIL_HASH||''))return error('Email của bé không hợp lệ.',400);
+    await env.DB.prepare('UPDATE users SET google_email_hash=? WHERE id=?').bind(await emailHash(env,email),child.id).run();
+    return reply({ok:true});
   }
   if(codeMatch&&request.method==='POST'){
     if(user.role!=='parent')return error('Chỉ phụ huynh đặt lại mã.',403);
@@ -135,6 +189,6 @@ export default {async fetch(request,env){
   if(request.method!=='GET'&&request.method!=='HEAD')return new Response('Method not allowed',{status:405});
   const path=url.pathname==='/'?'index.html':decodeURIComponent(url.pathname.slice(1));
   if(path.includes('..')||!Object.hasOwn(ASSETS,path))return new Response('Not found',{status:404});
-  return new Response(request.method==='HEAD'?null:ASSETS[path],{headers:{'content-type':assetType(path),'cache-control':path==='index.html'?'no-store':'public, max-age=3600','x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-robots-tag':'noindex'}});
+  return new Response(request.method==='HEAD'?null:ASSETS[path],{headers:{'content-type':assetType(path),'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'strict-origin-when-cross-origin','x-robots-tag':'noindex'}});
 }};
 

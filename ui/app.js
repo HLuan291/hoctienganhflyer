@@ -15,12 +15,13 @@ function loadData(){
     if (parsed && typeof parsed === 'object' && parsed.completed && Array.isArray(parsed.history)) {
       if(!parsed.cards || typeof parsed.cards!=='object' || Array.isArray(parsed.cards)) parsed.cards={};
       if(!parsed.games || typeof parsed.games!=='object' || Array.isArray(parsed.games)) parsed.games={};
+      if(!parsed.questionTurns || typeof parsed.questionTurns!=='object' || Array.isArray(parsed.questionTurns)) parsed.questionTurns={};
       if(!parsed.placement || typeof parsed.placement!=='object') parsed.placement={done:true,results:{},starts:{}};
       parsed.placement.results??={};parsed.placement.starts??={};
       return parsed;
     }
   } catch (_) {}
-  return {name:'Bé', completed:{}, history:[], cards:{}, games:{}, placement:{done:false,results:{},starts:{}}, sound:true, createdAt:new Date().toISOString()};
+  return {name:'Bé', completed:{}, history:[], cards:{}, games:{}, questionTurns:{}, placement:{done:false,results:{},starts:{}}, sound:true, createdAt:new Date().toISOString()};
 }
 let data = loadData();
 let currentView = 'home';
@@ -43,7 +44,7 @@ let googleClientId='';
 let syncPending=false;
 let syncBusy=false;
 
-function freshData(name='Bé'){return {name,completed:{},history:[],cards:{},games:{},placement:{done:false,results:{},starts:{}},sound:true,createdAt:new Date().toISOString()};}
+function freshData(name='Bé'){return {name,completed:{},history:[],cards:{},games:{},questionTurns:{},placement:{done:false,results:{},starts:{}},sound:true,createdAt:new Date().toISOString()};}
 function updateSync(label){const el=document.getElementById('syncState');if(el)el.textContent=label;}
 async function accountApi(path,options={}){
   const response=await fetch(`/api/${path}`,{credentials:'same-origin',cache:'no-store',...options,headers:{'content-type':'application/json',...(options.headers||{})}});
@@ -58,6 +59,7 @@ function mergeProgress(remote,local){
   out.history=[...history.values()].sort((a,b)=>String(a.date).localeCompare(String(b.date))).slice(-500);
   for(const [k,v] of Object.entries(local.cards||{})){const old=out.cards[k]||{};out.cards[k]={...old,...v,readPass:Boolean(old.readPass||v.readPass),writePass:Boolean(old.writePass||v.writePass),readScore:Math.max(old.readScore||0,v.readScore||0),writeScore:Math.max(old.writeScore||0,v.writeScore||0),readAttempts:Math.max(old.readAttempts||0,v.readAttempts||0),writeAttempts:Math.max(old.writeAttempts||0,v.writeAttempts||0)};}
   for(const [k,v] of Object.entries(local.games||{})){const old=out.games[k]||{};out.games[k]={...old,...v,best:Math.max(old.best||0,v.best||0),attempts:Math.max(old.attempts||0,v.attempts||0)};}
+  out.questionTurns={...remote.questionTurns};for(const [k,v] of Object.entries(local.questionTurns||{}))out.questionTurns[k]=Math.max(Number(out.questionTurns[k])||0,Number(v)||0);
   out.placement=local.placement||remote.placement;
   return out;
 }
@@ -95,6 +97,7 @@ async function selectProfile(id){
     data=profile.data;
     try{const unsynced=JSON.parse(localStorage.getItem(`${STORE_KEY}:${profile.id}`));if(unsynced?.completed&&Array.isArray(unsynced.history)){data=mergeProgress(data,unsynced);syncPending=true;}}catch(_){}
     if(!data.placement)data.placement={done:Boolean(data.history?.length),results:{},starts:{}};
+    if(!data.questionTurns||typeof data.questionTurns!=='object')data.questionTurns={};
     data.placement.results??={};data.placement.starts??={};
     document.getElementById('profileToggle').textContent=profile.name.charAt(0).toUpperCase();
     updateSync(syncPending?'Đang lưu…':'Đã lưu');if(syncPending)void flushProfile();setView(data.placement.done||data.history?.length?'home':'assessment');
@@ -247,7 +250,7 @@ function renderHome(){
 function renderAssessment(){
   const tracks=TRACKS.filter(t=>t.id!=='speaking');
   const done=tracks.filter(t=>data.placement?.results?.[t.id]).length;
-  return `<div class="assessment-head"><span class="eyebrow">BƯỚC KHỞI ĐẦU</span><h1 class="page-title">Tìm điểm bắt đầu phù hợp</h1><p class="page-intro">Mỗi kỹ năng có 3–9 câu ngắn. Chỉ khi làm đúng trọn một vòng, bé mới thử vòng khó hơn. Đây là gợi ý học tập, không phải xếp loại Cambridge.</p></div>
+  return `<div class="assessment-head"><span class="eyebrow">BƯỚC KHỞI ĐẦU</span><h1 class="page-title">Tìm điểm bắt đầu phù hợp</h1><p class="page-intro">Mỗi kỹ năng có 3–9 câu ngắn, lấy luân phiên từ ngân hàng để lần kiểm tra lại thay đổi câu. Chỉ khi làm đúng trọn một vòng, bé mới thử vòng khó hơn. Đây là gợi ý học tập, không phải xếp loại Cambridge.</p></div>
     <div class="card guide-card assessment-name"><label for="assessmentName"><strong>Tên học sinh</strong></label><div class="form-row"><input id="assessmentName" class="text-input" maxlength="25" value="${safe(data.name)}"><button id="saveAssessmentName" class="accent-btn">Lưu tên</button></div></div>
     <div class="section-head"><div><h2>Kiểm tra từng kỹ năng</h2><p>Đã hoàn thành ${done}/4. Nói bắt đầu ở Movers 1 vì web không thể tự xác nhận chất lượng nói.</p></div></div>
     <div class="assessment-grid">${tracks.map(t=>{const r=data.placement?.results?.[t.id];return `<div class="card assessment-card"><span class="track-icon">${t.icon}</span><h3>${safe(t.name)}</h3><p>${r?`Gợi ý bắt đầu ở cấp ${r.startLevel}. Bé vẫn có thể học lại cấp thấp hơn.`:'Chưa kiểm tra. Nếu chưa sẵn sàng, bé có thể bắt đầu từ cấp 1.'}</p><button class="${r?'outline-btn':'accent-btn'}" data-assess="${t.id}">${r?'Kiểm tra lại':'Bắt đầu kiểm tra'} →</button>${r?'':`<button class="subtle-link" data-assess-skip="${t.id}">Bắt đầu từ cấp 1</button>`}</div>`}).join('')}</div>
@@ -260,7 +263,7 @@ function startPlacement(track){
   if(!['vocab','listening','reading','writing'].includes(track))return;
   const pack=PACKS[PLACEMENT_PACKS[0]-1];
   stopAudio();stopRecord();
-  lesson={mode:'placement',track,level:pack.id,pack,tier:0,questions:questionsFor(track,pack).slice(0,3),index:0,answers:[],startedAt:Date.now(),selected:null,checked:false};
+  lesson={mode:'placement',track,level:pack.id,pack,tier:0,questions:questionsFor(track,pack,nextQuestionTurn('placement',track,pack.id)).slice(0,3),index:0,answers:[],startedAt:Date.now(),selected:null,checked:false};
   document.getElementById('lessonOverlay').classList.remove('hidden');document.body.style.overflow='hidden';
   document.getElementById('lessonBand').textContent=`KIỂM TRA ĐẦU VÀO · ${trackById(track).name}`;
   document.getElementById('lessonTitle').textContent='Vòng Movers 1/3';renderQuestion();
@@ -331,52 +334,57 @@ function renderAbout(){return `<h1 class="page-title">Về English Quest</h1><p 
   <div class="card guide-card"><h3>Thưởng khi vượt cấp</h3><p>Một danh hiệu và một món quà ảo được ghi nhận ở lần vượt cấp đầu tiên. Làm lại để ôn và cải thiện điểm mà không phát quà trùng.</p></div>
   <div class="card guide-card"><h3>Thẻ từ vựng và trường hợp dùng</h3><p>Mỗi từ có câu ví dụ trong tình huống. Bé nghe phát âm, lật thẻ xem nghĩa, đọc thành tiếng và viết từ. Nhận diện giọng nói chỉ so khớp từ được nghe, không chấm phát âm theo âm vị; trình duyệt có thể chuyển âm thanh tới dịch vụ nhận diện của họ. Web không lưu bản ghi âm.</p></div>
   <div class="card guide-card"><h3>Đường đua tình huống</h3><p>Trò chơi xen kẽ hiểu nghĩa, điền từ, nghe từ và đọc chuyện ngắn. Điểm tính theo độ đúng, thời gian chỉ được ghi lại. Trò chơi không thay thế bài học chính.</p></div>
-  <div class="card guide-card"><h3>Kiểm tra vượt cấp</h3><p>Ở Từ vựng, Nghe và Đọc, bé có thể làm 11–12 câu ngắn thay cho bài đầy đủ. Chỉ đúng toàn bộ mới mở cấp tiếp theo. Viết và Nói cần người lớn xem sản phẩm thật nên không tự động vượt cấp qua câu hỏi ngắn.</p></div>
+  <div class="card guide-card"><h3>Kiểm tra vượt cấp</h3><p>Ở Từ vựng, Nghe và Đọc, bé có thể làm 11–12 câu ngắn thay cho bài đầy đủ. Câu hỏi được rút luân phiên từ ngân hàng theo từng cấp; chỉ đúng toàn bộ mới mở cấp tiếp theo. Viết và Nói cần người lớn xem sản phẩm thật nên không tự động vượt cấp qua câu hỏi ngắn.</p></div>
   <div class="card guide-card"><h3>Ranh giới đánh giá</h3><p>Bài nghe dùng giọng đọc của trình duyệt. Bài nói đọc lại câu mẫu được nhận diện và chấm độ khớp nội dung; không chấm phát âm từng âm. Bài nói tự do và viết mở cần người lớn xem, không thay thế giám khảo.</p></div></div>
   <div class="section-head"><div><h2>Dữ liệu học tập</h2></div></div><div class="card guide-card"><p>Trang lưu tên hiển thị, mã nhận dạng Google và tiến độ trên máy chủ; khi chưa đồng bộ, trình duyệt giữ bản tạm. Email của bé chỉ được giữ dưới dạng giá trị băm trong lúc chờ đăng nhập lần đầu. Phiên đăng nhập dùng cookie chỉ máy chủ đọc. Phụ huynh có thể tải bản sao hoặc xóa tài khoản và tiến độ trong mục Hồ sơ. Khi chấm bài nói, âm thanh được gửi tới Cloudflare AI để nhận diện; web không lưu bản ghi âm. Nhận diện từ vựng bằng trình duyệt có thể gửi âm thanh tới dịch vụ của trình duyệt.</p></div>
   <div class="section-head"><div><h2>Tài liệu tham chiếu</h2></div></div><div class="card guide-card source-links"><p>Nội dung câu hỏi, hội thoại và truyện trên web được viết mới. Cấu trúc kỹ năng tham chiếu từ:</p><ul><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/movers/format/" target="_blank" rel="noopener">Cambridge English · A1 Movers exam format</a></li><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/flyers/format/" target="_blank" rel="noopener">Cambridge English · A2 Flyers exam format</a></li><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/flyers/preparation/" target="_blank" rel="noopener">Cambridge English · Flyers preparation resources</a></li></ul><p>English Quest không liên kết, được chứng nhận hay bảo trợ bởi Cambridge English.</p></div>`;}
 
-function optionsFor(answer, pool, count=4){
-  const unique=[answer,...pool.filter(x=>x!==answer)];
-  const seed=answer.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
-  const distractors=unique.slice(1).sort((a,b)=>((a.length*17+seed)%37)-((b.length*17+seed)%37)).slice(0,count-1);
-  const out=[answer,...distractors];
-  const move=seed%out.length;return [...out.slice(move),...out.slice(0,move)];
+function shuffleOptions(items){const out=[...items];for(let i=out.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[out[i],out[j]]=[out[j],out[i]];}return out;}
+function optionsFor(answer,pool,count=4){return shuffleOptions([answer,...shuffleOptions([...new Set(pool.filter(x=>x!==answer))]).slice(0,count-1)]);}
+function rotateQuestions(items,count,turn,step=2){const start=(turn*step)%items.length;return Array.from({length:count},(_,i)=>items[(start+i)%items.length]);}
+function nextQuestionTurn(mode,track,level){
+  data.questionTurns??={};const key=`${mode}:${track}:${level}`,turn=Number(data.questionTurns[key])||0;
+  data.questionTurns[key]=turn+1;persist();return turn;
 }
-function questionsFor(track, pack){
-  const words=pack.words;
+function blankUsage(pack,index){const word=pack.words[index][0],sentence=window.QUEST_USAGE?.[pack.id]?.[index]||'';return sentence.replace(new RegExp(`\\b${word}\\b`,'i'),'_____');}
+function listeningWordQuestion(pack,index,turn,label){
+  const word=pack.words[index][0],sentence=window.QUEST_USAGE?.[pack.id]?.[index];
+  const inSentence=Boolean(sentence)&&(turn+index)%2===1;
+  return {kind:'choice',label,text:inSentence?'Nghe câu rồi chọn từ trọng tâm được nhắc đến.':'Nghe rồi chọn từ được đọc.',options:optionsFor(word,pack.words.map(w=>w[0])),answer:word,audio:inSentence?sentence:word};
+}
+function readingWordQuestion(pack,index,turn,label){
+  const word=pack.words[index],inContext=Boolean(window.QUEST_USAGE?.[pack.id]?.[index])&&(turn+index)%2===1;
+  return inContext?{kind:'choice',label,text:`Chọn từ hoàn thành câu: ${blankUsage(pack,index)}`,options:optionsFor(word[0],pack.words.map(w=>w[0])),answer:word[0]}:{kind:'choice',label,text:`Trong chủ đề này, “${word[0]}” có nghĩa là gì?`,options:optionsFor(word[1],pack.words.map(w=>w[1])),answer:word[1]};
+}
+function comprehensionQuestions(track,pack,turn){
+  const original=(track==='listening'?pack.listen:pack.read).map(row=>({kind:'choice',label:track==='listening'?'Nghe hội thoại':'Đọc hiểu',text:row[0],options:shuffleOptions(row[2]),answer:row[1],...(track==='listening'?{audio:pack.dialogue}:{context:pack.story})}));
+  const extra=window.QUEST_QUESTION_BANK?.[pack.id]?.[track];
+  const added=extra.questions.map(row=>({kind:'choice',label:track==='listening'?'Nghe hội thoại mới':'Đọc đoạn mới',text:row[0],options:shuffleOptions(row[2]),answer:row[1],...(track==='listening'?{audio:extra.audio}:{context:extra.context})}));
+  return rotateQuestions([...original,...added],3,turn);
+}
+function questionsFor(track,pack,turn=0){
+  const words=pack.words,indices=rotateQuestions([...words.keys()],8,turn,3);
   if(track==='vocab'){
-    const pool=words.map(w=>w[1]);
-    const mc=words.slice(0,6).map((w,i)=>({kind:'choice',label:`Từ vựng · Câu ${i+1}`,text:`${w[2]} “${w[0]}” có nghĩa là gì?`,options:optionsFor(w[1],pool),answer:w[1],audio:w[0]}));
-    return [...mc,...words.slice(6,8).map((w,i)=>({kind:'input',label:`Viết từ · Câu ${i+7}`,text:`Viết từ tiếng Anh cho “${w[1]}” ${w[2]}`,answer:w[0],hint:'Chú ý chính tả nhé!',audio:w[0]}))];
+    const mc=indices.slice(0,6).map((index,i)=>{const w=words[index],reverse=(turn+i)%2===1;return {kind:'choice',label:`Từ vựng · Câu ${i+1}`,text:reverse?`${w[2]} Từ tiếng Anh nào có nghĩa “${w[1]}”?`:`${w[2]} “${w[0]}” có nghĩa là gì?`,options:optionsFor(reverse?w[0]:w[1],words.map(v=>v[reverse?0:1])),answer:reverse?w[0]:w[1],audio:w[0]};});
+    const spelling=indices.slice(6).map((index,i)=>{const w=words[index],context=(turn+i)%2===1;return {kind:'input',label:`Viết từ · Câu ${i+7}`,text:context?`Điền từ còn thiếu: ${blankUsage(pack,index)}`:`Viết từ tiếng Anh cho “${w[1]}” ${w[2]}`,answer:w[0],hint:'Chú ý chính tả nhé!',audio:w[0]};});
+    return [...mc,...spelling];
   }
-  if(track==='listening'){
-    const dialogue=pack.listen.map((row,i)=>({kind:'choice',label:`Nghe hội thoại · Câu ${i+1}`,text:row[0],options:row[2],answer:row[1],audio:pack.dialogue}));
-    const chosen=[words[0],words[2],words[4]];
-    const wordQs=chosen.map((w,i)=>({kind:'choice',label:`Nghe từ · Câu ${i+4}`,text:'Nghe rồi chọn từ được đọc.',options:optionsFor(w[0],words.map(v=>v[0])),answer:w[0],audio:w[0]}));
-    return [...dialogue,...wordQs];
-  }
-  if(track==='reading'){
-    const comprehension=pack.read.map((row,i)=>({kind:'choice',label:`Đọc hiểu · Câu ${i+1}`,text:row[0],options:row[2],answer:row[1],context:pack.story}));
-    const matching=words.slice(0,3).map((w,i)=>({kind:'choice',label:`Hiểu từ trong câu · Câu ${i+4}`,text:`Trong chủ đề này, “${w[0]}” gần nghĩa nhất với ý nào?`,options:optionsFor(w[1],words.map(v=>v[1])),answer:w[1]}));
-    return [...comprehension,...matching];
-  }
+  if(track==='listening')return [...comprehensionQuestions(track,pack,turn),...indices.slice(0,3).map((index,i)=>listeningWordQuestion(pack,index,turn,`Nghe từ · Câu ${i+4}`))];
+  if(track==='reading')return [...comprehensionQuestions(track,pack,turn),...indices.slice(0,3).map((index,i)=>readingWordQuestion(pack,index,turn,`Hiểu từ · Câu ${i+4}`))];
   if(track==='writing'){
-    const spell=words.slice(0,5).map((w,i)=>({kind:'input',label:`Chính tả · Câu ${i+1}`,text:`Viết từ tiếng Anh: ${w[1]} ${w[2]}`,answer:w[0],hint:'Viết đúng từng chữ cái.'}));
-    return [...spell,{kind:'open',label:pack.band==='Flyers'?'Kể chuyện bằng 3 tranh · Câu 6':'Viết câu · Câu 6',text:pack.band==='Flyers'?`Nhìn 3 tranh gợi ý và viết một câu chuyện ngắn. ${pack.speak}`:`Viết 2–3 câu tiếng Anh theo gợi ý: ${pack.speak}`,model:pack.model,visual:pack.band==='Flyers'?words.slice(0,3).map(w=>w[2]):null}];
+    const spell=indices.slice(0,5).map((index,i)=>{const w=words[index],context=(turn+i)%2===1;return {kind:'input',label:`Chính tả · Câu ${i+1}`,text:context?`Điền từ còn thiếu: ${blankUsage(pack,index)}`:`Viết từ tiếng Anh: ${w[1]} ${w[2]}`,answer:w[0],hint:'Viết đúng từng chữ cái.'};});
+    const variant=turn%2===1,chosen=indices.slice(0,2),model=variant?chosen.map(index=>window.QUEST_USAGE[pack.id][index]).join(' '):pack.model;
+    return [...spell,{kind:'open',label:pack.band==='Flyers'?'Viết theo tranh · Câu 6':'Viết câu · Câu 6',text:variant?`Viết 2 câu về “${pack.title}”, thử dùng “${words[chosen[0]][0]}” và “${words[chosen[1]][0]}”.`:pack.band==='Flyers'?`Nhìn 3 tranh gợi ý và viết một câu chuyện ngắn. ${pack.speak}`:`Viết 2–3 câu tiếng Anh theo gợi ý: ${pack.speak}`,model,visual:pack.band==='Flyers'?indices.slice(0,3).map(index=>words[index][2]):null}];
   }
-  const compare=[1,4,7,10].includes(pack.id),story=[2,5,9,11].includes(pack.id);
-  return [{kind:'speaking',label:'Đọc thành tiếng',text:'Nghe câu mẫu rồi đọc lại bằng tiếng Anh.',extension:compare?`Tự nói thêm điểm khác nhau giữa hai tranh. ${pack.speak}`:story?`Tự kể câu chuyện khác theo tranh. ${pack.speak}`:pack.speak,model:pack.model,audio:pack.model,visual:compare?[words.slice(0,3).map(w=>w[2]).join(' '),[words[0],words[1],words[3]].map(w=>w[2]).join(' ')]:story?words.slice(0,4).map(w=>w[2]):null}];
+  const compare=[1,4,7,10].includes(pack.id),story=[2,5,9,11].includes(pack.id),sample=turn%2;
+  const model=sample?pack.story.split(/(?<=[.!?])\s+/).slice(0,2).join(' '):pack.model;
+  return [{kind:'speaking',label:'Đọc thành tiếng',text:'Nghe câu mẫu rồi đọc lại bằng tiếng Anh.',extension:compare?`Tự nói thêm điểm khác nhau giữa hai tranh. ${pack.speak}`:story?`Tự kể câu chuyện khác theo tranh. ${pack.speak}`:pack.speak,model,audio:model,sample,visual:compare?[words.slice(0,3).map(w=>w[2]).join(' '),[words[0],words[1],words[3]].map(w=>w[2]).join(' ')]:story?words.slice(0,4).map(w=>w[2]):null}];
 }
-function skipQuestionsFor(track,pack){
-  const base=questionsFor(track,pack),words=pack.words;
-  if(track==='vocab'){
-    const uses=window.QUEST_USAGE?.[pack.id]||[];
-    const context=[0,2,4,6].map(i=>({kind:'input',label:'Dùng từ trong câu',text:`Điền từ còn thiếu: ${uses[i]?.replace(new RegExp(`\\b${words[i][0]}\\b`,'i'),'_____')||words[i][1]}`,answer:words[i][0],hint:'Dùng đúng từ tiếng Anh trong ngữ cảnh.'}));
-    return [...base,...context];
-  }
-  if(track==='listening')return [...base.slice(0,3),...words.map((w,i)=>({kind:'choice',label:`Nghe từ · Câu ${i+4}`,text:'Nghe rồi chọn từ được đọc.',options:optionsFor(w[0],words.map(v=>v[0])),answer:w[0],audio:w[0]}))];
-  return [...base.slice(0,3),...words.map((w,i)=>({kind:'choice',label:`Hiểu từ trong câu · Câu ${i+4}`,text:`Trong chủ đề này, “${w[0]}” gần nghĩa nhất với ý nào?`,options:optionsFor(w[1],words.map(v=>v[1])),answer:w[1]}))];
+function skipQuestionsFor(track,pack,turn){
+  const base=questionsFor(track,pack,turn),words=pack.words,indices=rotateQuestions([...words.keys()],8,turn,3);
+  if(track==='vocab')return [...base,...indices.slice(0,4).map(index=>({kind:'input',label:'Dùng từ trong câu',text:`Điền từ còn thiếu: ${blankUsage(pack,index)}`,answer:words[index][0],hint:'Dùng đúng từ tiếng Anh trong ngữ cảnh.'}))];
+  if(track==='listening')return [...base.slice(0,3),...indices.map((index,i)=>listeningWordQuestion(pack,index,turn+1,`Nghe từ · Câu ${i+4}`))];
+  return [...base.slice(0,3),...indices.map((index,i)=>readingWordQuestion(pack,index,turn+1,`Hiểu từ · Câu ${i+4}`))];
 }
 
 function openLesson(track, level, mode='lesson'){
@@ -384,8 +392,8 @@ function openLesson(track, level, mode='lesson'){
   if(mode==='skip'&&!['vocab','listening','reading'].includes(track))return;
   const pack=PACKS[level-1];if(!pack)return;
   stopAudio();recordGeneration++;stopRecord();recordedBlob=null;
-  const questions=questionsFor(track,pack);
-  lesson={mode,track,level,pack,questions:mode==='skip'?skipQuestionsFor(track,pack):questions,index:0,answers:[],startedAt:Date.now(),selected:null,checked:false};
+  const turn=nextQuestionTurn(mode,track,level);
+  lesson={mode,track,level,pack,questions:mode==='skip'?skipQuestionsFor(track,pack,turn):questionsFor(track,pack,turn),index:0,answers:[],startedAt:Date.now(),selected:null,checked:false};
   document.getElementById('lessonOverlay').classList.remove('hidden');
   document.body.style.overflow='hidden';
   document.getElementById('lessonBand').textContent=`${mode==='skip'?'KIỂM TRA VƯỢT CẤP · ':''}${pack.band} · ${trackById(track).name} · Cấp ${level}`;
@@ -460,9 +468,9 @@ async function wavFromRecording(blob){
     return wav;
   }finally{await context.close()}
 }
-async function assessSpeech(level,blob){
+async function assessSpeech(level,sample,blob){
   const wav=await wavFromRecording(blob);
-  const response=await fetch(`/api/speech/assess?profile=${encodeURIComponent(activeProfile.id)}&level=${level}`,{method:'POST',headers:{'content-type':'audio/wav'},body:wav,credentials:'same-origin',cache:'no-store'});
+  const response=await fetch(`/api/speech/assess?profile=${encodeURIComponent(activeProfile.id)}&level=${level}&sample=${sample}`,{method:'POST',headers:{'content-type':'audio/wav'},body:wav,credentials:'same-origin',cache:'no-store'});
   const result=await response.json();if(!response.ok)throw Error(result.error||'Không chấm được bài nói.');return result;
 }
 function normalized(s){return String(s).trim().toLowerCase().replace(/[.!?,]/g,'').replace(/\s+/g,' ');}
@@ -485,7 +493,7 @@ async function checkAnswer(){
     if(!recordedBlob){body.querySelector('#feedback').innerHTML='<div class="feedback bad">Hãy ghi âm câu mẫu trước khi chấm.</div>';return;}
     lesson.assessing=true;const button=document.getElementById('checkAnswer');button.disabled=true;button.textContent='Đang nhận diện…';
     try{
-      const result=await assessSpeech(lesson.level,recordedBlob);
+      const result=await assessSpeech(lesson.level,q.sample,recordedBlob);
       if(lesson!==currentLesson)return;
       value=result.transcript||'(không nhận diện được lời nói)';credit=result.score/10;
       body.querySelector('#recordStatus').textContent=`Máy nghe được: “${value}”. Lượt chấm còn lại hôm nay: ${result.remaining}.`;
@@ -508,7 +516,7 @@ function nextQuestion(){
   if(lesson.index===lesson.questions.length-1){
     if(lesson.mode==='placement'){
       const round=lesson.answers.slice(-3),perfect=round.length===3&&round.every(a=>a.credit===1);
-      if(perfect&&lesson.tier<2){lesson.tier++;const pack=PACKS[PLACEMENT_PACKS[lesson.tier]-1];lesson.pack=pack;lesson.level=pack.id;lesson.questions.push(...questionsFor(lesson.track,pack).slice(0,3));document.getElementById('lessonTitle').textContent=`Vòng ${pack.band} ${lesson.tier+1}/3`;}
+      if(perfect&&lesson.tier<2){lesson.tier++;const pack=PACKS[PLACEMENT_PACKS[lesson.tier]-1];lesson.pack=pack;lesson.level=pack.id;lesson.questions.push(...questionsFor(lesson.track,pack,nextQuestionTurn('placement',lesson.track,pack.id)).slice(0,3));document.getElementById('lessonTitle').textContent=`Vòng ${pack.band} ${lesson.tier+1}/3`;}
       else{finishPlacement(perfect);return;}
     }else{finishLesson();return;}
   }
@@ -547,7 +555,8 @@ async function importData(file){
     if(file.size>2_000_000)throw Error('too large');
     const parsed=JSON.parse(await file.text());
     if(!parsed||typeof parsed.name!=='string'||!parsed.completed||typeof parsed.completed!=='object'||!Array.isArray(parsed.history))throw Error('invalid');
-    const clean={name:activeProfile?.name||parsed.name.slice(0,25),completed:{},history:[],cards:{},games:{},placement:{done:false,results:{},starts:{}},sound:parsed.sound!==false,createdAt:typeof parsed.createdAt==='string'?parsed.createdAt:new Date().toISOString()};
+    const clean={name:activeProfile?.name||parsed.name.slice(0,25),completed:{},history:[],cards:{},games:{},questionTurns:{},placement:{done:false,results:{},starts:{}},sound:parsed.sound!==false,createdAt:typeof parsed.createdAt==='string'?parsed.createdAt:new Date().toISOString()};
+    if(parsed.questionTurns&&typeof parsed.questionTurns==='object'&&!Array.isArray(parsed.questionTurns))for(const [key,value] of Object.entries(parsed.questionTurns)){if(/^(lesson|skip|placement):(vocab|listening|reading|writing|speaking):([1-9]|1[0-2])$/.test(key)&&Number.isInteger(value)&&value>=0&&value<=100000)clean.questionTurns[key]=value;}
     for(const t of TRACKS)for(const p of PACKS){const k=keyFor(t.id,p.id),c=parsed.completed[k];if(!c)continue;
       if(!Number.isFinite(c.best)||c.best<0||c.best>10||!Number.isFinite(c.first)||!Number.isFinite(c.last)||!Number.isFinite(c.time)||typeof c.date!=='string')throw Error('invalid');
       clean.completed[k]={first:c.first,best:c.best,last:c.last,time:c.time,lastDuration:Number(c.lastDuration)||c.time,attempts:Number(c.attempts)||1,date:c.date,badge:`${t.name} ${p.band} · Cấp ${p.id}`,gift:GIFTS[(p.id-1)%GIFTS.length]};

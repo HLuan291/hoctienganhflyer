@@ -11,7 +11,7 @@ legacyDb.exec(await readFile(new URL('../migrations/001_google_auth.sql',import.
 assert.ok(legacyDb.prepare('PRAGMA table_info(users)').all().some(column=>column.name==='google_sub'));
 assert.ok(legacyDb.prepare('PRAGMA table_info(users)').all().some(column=>column.name==='google_email_hash'));
 function prepared(sql,args=[]){const s=db.prepare(sql);return {bind(...next){return prepared(sql,next)},async first(){return s.get(...args)},async all(){return {results:s.all(...args)}},async run(){return {meta:{changes:s.run(...args).changes}}}}}
-const env={AUTH_PEPPER:'testing-pepper-with-at-least-thirty-two-characters',SETUP_KEY:'testing-setup-key-with-enough-entropy',DB:{
+const env={AUTH_PEPPER:'testing-pepper-with-at-least-thirty-two-characters',SETUP_KEY:'testing-setup-key-with-enough-entropy',LEGACY_AUTH_ENABLED:true,DB:{
   prepare(sql){return prepared(sql)},
   async batch(statements){const result=[];for(const statement of statements)result.push(await statement.run());return result}
 }};
@@ -34,6 +34,18 @@ const created=await json(await call('/api/profiles',{method:'POST',cookie:parent
 assert.equal(created.status,201);assert.ok(created.body.accessCode);
 const other=await json(await call('/api/profiles',{method:'POST',cookie:parentCookie,body:{name:'Lan',username:'lan.hoc',data:{...seed,name:'Lan'}}}));
 assert.equal(other.status,201);
+const privateToken='a'.repeat(64),tokenHash=createHash('sha256').update(privateToken).digest('hex');
+db.prepare('INSERT INTO solo_links (token_hash,user_id,created_at) VALUES (?,?,?)').run(tokenHash,created.body.id,new Date().toISOString());
+assert.equal((await call('/api/solo')).status,401);
+assert.equal((await call('/start/'+('b'.repeat(64)))).status,404);
+const opened=await call('/start/'+privateToken);
+assert.equal(opened.status,302);assert.equal(opened.headers.get('location'),'/');assert.equal(opened.headers.get('referrer-policy'),'no-referrer');
+const soloCookie=opened.headers.get('set-cookie').split(';')[0];
+const soloStart=await json(await call('/api/solo',{cookie:soloCookie}));
+assert.equal(soloStart.status,200);assert.equal(soloStart.body.id,created.body.id);
+assert.equal((await call('/api/solo',{method:'PUT',cookie:soloCookie,body:{revision:0,data:{...seed,name:'Mai'}}}).then(r=>r.json())).revision,1);
+assert.equal((await call('/api/solo',{method:'PUT',cookie:soloCookie,body:{revision:0,data:seed}})).status,409);
+assert.equal((await worker.fetch(new Request(origin+'/api/solo',{method:'PUT',headers:{origin:'https://evil.example','content-type':'application/json',cookie:soloCookie},body:JSON.stringify({revision:1,data:seed})}),env)).status,403);
 const childLogin=await json(await call('/api/login',{method:'POST',body:{username:'mai.hoc',accessCode:created.body.accessCode}}));
 assert.equal(childLogin.status,200);const childCookie=childLogin.cookie.split(';')[0];
 let aiCalls=0;
@@ -53,6 +65,11 @@ env.AI.run=async()=>{aiCalls++;return {text:'The cat is on the moon.'}};
 const missed=await json(await speech(created.body.id,1));assert.equal(missed.status,200);assert.ok(missed.body.score<8);
 for(let i=0;i<22;i++)assert.equal((await speech(created.body.id,1)).status,200);
 assert.equal((await speech(created.body.id,1)).status,429);assert.equal(aiCalls,25);
+const secondToken='c'.repeat(64),secondHash=createHash('sha256').update(secondToken).digest('hex');
+db.prepare('INSERT INTO solo_links (token_hash,user_id,created_at) VALUES (?,?,?)').run(secondHash,other.body.id,new Date().toISOString());
+const secondLink=(await call('/start/'+secondToken)).headers.get('set-cookie').split(';')[0];
+const soloSpeech=await worker.fetch(new Request(`${origin}/api/speech/assess?level=1&sample=0`,{method:'POST',headers:{origin,'content-type':'audio/wav',cookie:secondLink},body:wav}),env);
+assert.equal(soloSpeech.status,200);
 assert.equal((await call('/api/session',{cookie:childCookie}).then(r=>r.json())).role,'child');
 assert.equal((await call('/api/profiles',{cookie:childCookie}).then(r=>r.json())).profiles.length,1);
 assert.equal((await call('/api/profiles/'+other.body.id,{cookie:childCookie})).status,404);
@@ -60,8 +77,8 @@ assert.equal((await call('/api/profiles/'+created.body.id,{method:'DELETE',cooki
 assert.equal((await call('/api/profiles',{method:'POST',cookie:childCookie,body:{name:'Fake',username:'fake',data:seed}})).status,403);
 assert.equal((await call('/api/profiles/'+created.body.id,{cookie:childCookie}).then(r=>r.json())).data.name,'Mai');
 seed.history.push({track:'vocab',level:1,score:10,duration:30,date:new Date().toISOString()});
-assert.equal((await call('/api/profiles/'+created.body.id,{method:'PUT',cookie:childCookie,body:{revision:0,data:seed}}).then(r=>r.json())).revision,1);
-assert.equal((await call('/api/profiles/'+created.body.id,{method:'PUT',cookie:childCookie,body:{revision:0,data:seed}})).status,409);
+assert.equal((await call('/api/profiles/'+created.body.id,{method:'PUT',cookie:childCookie,body:{revision:1,data:seed}}).then(r=>r.json())).revision,2);
+assert.equal((await call('/api/profiles/'+created.body.id,{method:'PUT',cookie:childCookie,body:{revision:1,data:seed}})).status,409);
 const reset=await json(await call('/api/profiles/'+created.body.id+'/code',{method:'POST',cookie:parentCookie,body:{}}));assert.equal(reset.status,200);
 assert.equal((await call('/api/session',{cookie:childCookie})).status,401);
 assert.equal((await call('/api/login',{method:'POST',body:{username:'mai.hoc',accessCode:created.body.accessCode}})).status,401);
@@ -75,6 +92,7 @@ const recoveredLogin=await json(await call('/api/login',{method:'POST',body:{use
 const recoveredCookie=recoveredLogin.cookie.split(';')[0];
 assert.equal((await call('/api/profiles/'+other.body.id,{method:'DELETE',cookie:recoveredCookie,body:{}})).status,200);
 assert.equal((await call('/api/profiles/'+other.body.id,{cookie:recoveredCookie})).status,404);
+assert.equal((await call('/api/solo',{cookie:secondLink})).status,401);
 assert.equal((await worker.fetch(new Request(origin+'/api/login',{method:'POST',headers:{origin:'https://evil.example','content-type':'application/json'},body:'{}'}),env)).status,403);
 const {publicKey,privateKey}=await generateKeyPair('RS256');
 const jwk=await exportJWK(publicKey);jwk.kid='test-key';jwk.alg='RS256';jwk.use='sig';
@@ -105,5 +123,8 @@ assert.equal(googleChild.status,200);const googleChildCookie=googleChild.cookie.
 assert.equal((await call('/api/profiles',{cookie:googleChildCookie}).then(r=>r.json())).profiles.length,1);
 assert.equal((await call('/api/profiles/'+created.body.id,{cookie:googleChildCookie})).status,404);
 assert.equal((await call(`/api/profiles/${invited.body.id}/google-invite`,{method:'PUT',cookie:googleParentCookie,body:{googleEmail:'another@example.com'}})).status,404);
+env.LEGACY_AUTH_ENABLED=false;
+assert.equal((await call('/api/login',{method:'POST',body:{username:'parent',accessCode:parent.body.accessCode}})).status,410);
+assert.equal((await call('/api/solo',{cookie:soloCookie})).status,200);
 console.log('Legacy access, Google identity, and speech assessment authorization, scoring and quota checks passed.');
 

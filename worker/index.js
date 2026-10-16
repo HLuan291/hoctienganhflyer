@@ -15,6 +15,20 @@ const code=()=>{const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',random=crypto.
 const hashCode=(env,username,credential)=>sha(`${env.AUTH_PEPPER}:${username}:${normalizeCode(credential)}`);
 const emailHash=(env,email)=>sha(`${env.AUTH_PEPPER}:google-email:${email}`);
 const validEmail=x=>typeof x==='string'&&x.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x);
+const speechWords=value=>String(value||'').toLowerCase().replace(/[’‘]/g,"'").match(/[a-z]+(?:'[a-z]+)?/g)||[];
+function speechScore(reference,spoken){
+  const expected=speechWords(reference),actual=speechWords(spoken);
+  if(!actual.length)return {score:0,matched:0,total:expected.length};
+  let row=Array.from({length:actual.length+1},(_,i)=>i);
+  for(let i=1;i<=expected.length;i++){
+    const next=[i];for(let j=1;j<=actual.length;j++)next[j]=Math.min(next[j-1]+1,row[j]+1,row[j-1]+Number(expected[i-1]!==actual[j-1]));row=next;
+  }
+  const matched=Math.max(0,expected.length-row[actual.length]);
+  return {score:Math.round(100*Math.max(0,1-row[actual.length]/Math.max(expected.length,actual.length)))/10,matched,total:expected.length};
+}
+function base64Audio(buffer){
+  const bytes=new Uint8Array(buffer);let value='';for(let i=0;i<bytes.length;i+=8192)value+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(value);
+}
 const googleKeys=createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
 async function googleIdentity(env,credential){
   if(!env.GOOGLE_CLIENT_ID||typeof credential!=='string'||credential.length>10000)throw Error('Google chưa được cấu hình hoặc thông tin đăng nhập không hợp lệ.');
@@ -44,7 +58,8 @@ async function api(request,env,url){
   const secure=url.protocol==='https:';
   if(['POST','PUT','DELETE'].includes(request.method)){
     if(request.headers.get('origin')!==url.origin)return error('Yêu cầu không cùng trang.',403);
-    if(!request.headers.get('content-type')?.startsWith('application/json'))return error('Yêu cầu phải là JSON.',415);
+    const speechUpload=url.pathname==='/api/speech/assess'&&request.method==='POST';
+    if(!request.headers.get('content-type')?.startsWith(speechUpload?'audio/wav':'application/json'))return error(speechUpload?'Yêu cầu âm thanh WAV.':'Yêu cầu phải là JSON.',415);
   }
   if(url.pathname==='/api/setup/status'&&request.method==='GET'){
     const parent=await env.DB.prepare("SELECT id FROM users WHERE role='parent' LIMIT 1").first();return reply({needed:!parent});
@@ -118,6 +133,26 @@ async function api(request,env,url){
     const token=/\bquest_session=([^;]+)/.exec(request.headers.get('cookie')||'')?.[1];if(token)await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await sha(decodeURIComponent(token))).run();
     return reply({ok:true},200,{'set-cookie':clearCookie(secure)});
   }
+  if(url.pathname==='/api/speech/assess'&&request.method==='POST'){
+    if(!env.AI)return error('Chấm nói chưa được cấu hình.',503);
+    const profileId=url.searchParams.get('profile'),level=Number(url.searchParams.get('level'));
+    if(!/^[a-f0-9-]{36}$/.test(profileId||'')||!Number.isInteger(level)||level<1||level>SPEAKING_MODELS.length)return error('Bài nói không hợp lệ.',400);
+    const child=await env.DB.prepare("SELECT id,parent_id FROM users WHERE id=? AND role='child'").bind(profileId).first();
+    if(!permitted(user,child))return error('Không tìm thấy học sinh.',404);
+    if(Number(request.headers.get('content-length'))>800000)return error('Bản ghi quá dài; tối đa 20 giây.',413);
+    const audio=await request.arrayBuffer();
+    const header=new Uint8Array(audio,0,Math.min(audio.byteLength,12));
+    if(audio.byteLength<32044||audio.byteLength>800000||String.fromCharCode(...header.subarray(0,4))!=='RIFF'||String.fromCharCode(...header.subarray(8,12))!=='WAVE')return error('Cần ghi âm 1–20 giây ở định dạng WAV.',400);
+    const day=new Date().toISOString().slice(0,10);
+    const usage=await env.DB.prepare('INSERT INTO speech_usage (user_id,day_utc,attempts) VALUES (?,?,1) ON CONFLICT(user_id,day_utc) DO UPDATE SET attempts=attempts+1 WHERE attempts<25').bind(child.id,day).run();
+    if(usage.meta?.changes!==1)return error('Hôm nay đã dùng hết 25 lượt chấm nói. Bé có thể luyện lại vào ngày mai.',429);
+    let result;
+    try{result=await env.AI.run('@cf/openai/whisper-large-v3-turbo',{audio:base64Audio(audio),task:'transcribe',language:'en',vad_filter:true});}
+    catch{return error('Dịch vụ nhận diện đang bận. Hãy thử lại sau.',503)}
+    const transcript=typeof result?.text==='string'?result.text.trim().slice(0,500):'';
+    const assessment=speechScore(SPEAKING_MODELS[level-1],transcript);
+    return reply({transcript,reference:SPEAKING_MODELS[level-1],...assessment,remaining:25-Number((await env.DB.prepare('SELECT attempts FROM speech_usage WHERE user_id=? AND day_utc=?').bind(child.id,day).first())?.attempts||25)});
+  }
   const list=url.pathname==='/api/profiles',match=/^\/api\/profiles\/([a-f0-9-]{36})$/.exec(url.pathname),codeMatch=/^\/api\/profiles\/([a-f0-9-]{36})\/code$/.exec(url.pathname);
   if(list&&request.method==='GET'){
     const result=user.role==='parent'?await env.DB.prepare("SELECT id,display_name AS name,username,created_at,google_email_hash IS NOT NULL AS google_pending,google_sub IS NOT NULL AS google_linked FROM users WHERE parent_id=? AND role='child' ORDER BY created_at ASC").bind(user.id).all():await env.DB.prepare('SELECT id,display_name AS name,username,created_at FROM users WHERE id=?').bind(user.id).all();
@@ -162,6 +197,7 @@ async function api(request,env,url){
       await env.DB.batch([
         env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(child.id),
         env.DB.prepare('DELETE FROM progress WHERE user_id=?').bind(child.id),
+        env.DB.prepare('DELETE FROM speech_usage WHERE user_id=?').bind(child.id),
         env.DB.prepare('DELETE FROM users WHERE id=? AND parent_id=?').bind(child.id,user.id)
       ]);
       return reply({ok:true});

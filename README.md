@@ -22,5 +22,5 @@ Chạy `npm run build`, `node --test scripts/test.mjs scripts/test-questions.mjs
 
 ## Giới hạn
 
-Nội dung hiện có 96 từ và 12 chặng mỗi kỹ năng; chưa đủ thay thế toàn bộ chương trình Movers–Flyers kéo dài 5 tháng. Điểm vượt cấp là gợi ý học tập, không phải điểm thi Cambridge. Phụ huynh cần xem bài nói tự do và bài viết mở.
+Nội dung hiện có 96 thẻ từ (94 từ khác nhau; `temperature` và `arrive` được ôn lại ở cấp khác) và 12 chặng mỗi kỹ năng; chưa đủ thay thế toàn bộ chương trình Movers–Flyers kéo dài 5 tháng. Điểm vượt cấp là gợi ý học tập, không phải điểm thi Cambridge. Phụ huynh cần xem bài nói tự do và bài viết mở.
 

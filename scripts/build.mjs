@@ -7,8 +7,8 @@ async function scan(dir){for(const entry of await readdir(dir,{withFileTypes:tru
 await scan(ui);if(!files['index.html'])throw Error('Missing ui/index.html');
 const dataContext={window:{}};
 runInNewContext(files['data.js'],dataContext);
-const speakingModels=dataContext.window.QUEST_PACKS?.map(pack=>pack.model);
-if(speakingModels?.length!==12||speakingModels.some(model=>typeof model!=='string'||!model))throw Error('Missing speaking models');
+const speakingModels=dataContext.window.QUEST_PACKS?.map(pack=>[pack.model,pack.story.split(/(?<=[.!?])\s+/).slice(0,2).join(' ')]);
+if(speakingModels?.length!==12||speakingModels.some(models=>models.some(model=>typeof model!=='string'||!model)))throw Error('Missing speaking models');
 await mkdir(out,{recursive:true});
 const worker=await readFile(resolve(root,'worker/index.js'),'utf8');
 await writeFile(resolve(out,'index.js'),`const ASSETS = ${JSON.stringify(files)};\nconst SPEAKING_MODELS = ${JSON.stringify(speakingModels)};\n${worker}`);

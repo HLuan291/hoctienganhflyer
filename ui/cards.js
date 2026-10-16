@@ -19,7 +19,7 @@ window.QUEST_CARDS = (() => {
   }
   function selectDeck(deck){
     if(!unlocked('vocab',deck))return;
-    cancelRecognition();state.deck=deck;state.index=0;state.mode='study';state.flipped=false;state.feedback=null;draw();
+    cancelRecognition();state.deck=deck;state.index=0;state.mode='study';state.flipped=false;state.feedback=null;draw();if(window.matchMedia('(max-width:760px)').matches)window.scrollTo({top:0,behavior:'smooth'});
   }
   function selectCard(index){
     cancelRecognition();state.index=index;state.mode='study';state.flipped=false;state.feedback=null;draw();
@@ -76,14 +76,14 @@ window.QUEST_CARDS = (() => {
     if(!unlocked('vocab',state.deck))state.deck=visibleDecks().at(-1)?.id||1;
     const pack=PACKS[state.deck-1],word=pack.words[state.index],record=getRecord(pack.id,state.index);
     const known=pack.words.filter((_,i)=>isMastered(pack.id,i)).length;
-    return `<div class="cards-heading"><div><span class="eyebrow">HỌC TỪ THEO THẺ</span><h1>Nhớ từ bằng nghe, đọc và viết ✨</h1><p>Học từ Movers trước, rồi mở dần các bộ Flyers theo lộ trình Từ vựng.</p></div><div class="cards-count"><strong>${totalKnown()}/${PACKS.length*8}</strong><span>Từ đã luyện đủ đọc + viết</span></div></div>
-      <div class="section-head"><div><h2>Chọn bộ thẻ</h2><p>Các bộ tiếp theo mở khi bé vượt cấp Từ vựng tương ứng.</p></div></div><div class="deck-grid">${deckTiles()}</div>
+    return `<div class="cards-page"><div class="cards-heading"><div><span class="eyebrow">HỌC TỪ THEO THẺ</span><h1>Nhớ từ bằng nghe, đọc và viết ✨</h1><p>Học từ Movers trước, rồi mở dần các bộ Flyers theo lộ trình Từ vựng.</p></div><div class="cards-count"><strong>${totalKnown()}/${PACKS.length*8}</strong><span>Từ đã luyện đủ đọc + viết</span></div></div>
+      <div class="deck-selector"><div class="section-head"><div><h2>Chọn bộ thẻ</h2><p>Các bộ tiếp theo mở khi bé vượt cấp Từ vựng tương ứng.</p></div></div><div class="deck-grid">${deckTiles()}</div></div>
       <div class="cards-workspace"><div class="card-study"><div class="study-top"><div><span class="phase-pill ${pack.band==='Flyers'?'flyers':''}">${pack.band.toUpperCase()}</span><h2>${pack.icon} ${safe(pack.title)}</h2><p>${known}/8 từ đã luyện đủ hai kỹ năng</p></div><button class="outline-btn" id="cardNextUnlearned">Ôn từ chưa nhớ →</button></div>
       <div class="word-map">${wordMap(pack)}</div>
       <div class="card-modes"><button class="mode-tab ${state.mode==='study'?'active':''}" data-mode="study">▧ Xem thẻ</button><button class="mode-tab ${state.mode==='read'?'active':''}" data-mode="read">◉ Đọc từ</button><button class="mode-tab ${state.mode==='write'?'active':''}" data-mode="write">✎ Viết từ</button></div>
       ${activityHtml(pack,word)}<div class="card-navigation"><button class="outline-btn" id="cardPrev">← Thẻ trước</button><span>Thẻ ${state.index+1} / ${pack.words.length}</span><button class="accent-btn" id="cardNext">Thẻ tiếp →</button></div></div>
       <aside class="card-tips"><div class="card tip-box"><div class="tip-icon">🎯</div><h3>Học theo 3 bước</h3><ol><li>Nhìn thẻ và đoán nghĩa.</li><li>Nghe mẫu, đọc thành tiếng.</li><li>Ẩn từ và viết lại thật đúng.</li></ol></div><div class="card tip-box"><div class="tip-icon">📈</div><h3>Tiến độ từ này</h3><div class="skill-check ${record.readPass?'done':''}"><span>${record.readPass?'✓':'◯'}</span> Đọc được nhận diện ${record.readAttempts?`· ${record.readLastScore}/10 · ${displayTime(record.readDuration)}`:''}</div><div class="skill-check ${record.writePass?'done':''}"><span>${record.writePass?'✓':'◯'}</span> Viết đúng chính tả ${record.writeAttempts?`· ${record.writeLastScore}/10 · ${displayTime(record.writeDuration)}`:''}</div><p>Hai dấu ✓ giúp phụ huynh biết từ nào cần ôn. Bé vẫn cần làm bài của lộ trình để vượt cấp.</p></div></aside></div>
-      <div class="info-strip">Âm thanh dùng Web Speech API của trình duyệt. Phần đọc dùng nhận diện giọng nói để so khớp từ, nên có thể nhầm với giọng trẻ em hoặc tiếng ồn. Điểm luyện đọc không phải điểm phát âm Cambridge.</div>`;
+      <div class="info-strip">Âm thanh dùng Web Speech API của trình duyệt. Phần đọc dùng nhận diện giọng nói để so khớp từ, nên có thể nhầm với giọng trẻ em hoặc tiếng ồn. Điểm luyện đọc không phải điểm phát âm Cambridge.</div></div>`;
   }
   function draw(){
     if(document.getElementById('mainContent') && currentView==='cards'){

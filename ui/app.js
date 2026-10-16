@@ -343,7 +343,8 @@ function shuffleOptions(items){const out=[...items];for(let i=out.length-1;i>0;i
 function optionsFor(answer,pool,count=4){return shuffleOptions([answer,...shuffleOptions([...new Set(pool.filter(x=>x!==answer))]).slice(0,count-1)]);}
 function rotateQuestions(items,count,turn,step=2){const start=(turn*step)%items.length;return Array.from({length:count},(_,i)=>items[(start+i)%items.length]);}
 function nextQuestionTurn(mode,track,level){
-  data.questionTurns??={};const key=`${mode}:${track}:${level}`,turn=Number(data.questionTurns[key])||0;
+  data.questionTurns??={};const key=`${track}:${level}`;
+  const turn=Math.max(Number(data.questionTurns[key])||0,...['lesson','skip','placement'].map(kind=>Number(data.questionTurns[`${kind}:${track}:${level}`])||0));
   data.questionTurns[key]=turn+1;persist();return turn;
 }
 function blankUsage(pack,index){const word=pack.words[index][0],sentence=window.QUEST_USAGE?.[pack.id]?.[index]||'';return sentence.replace(new RegExp(`\\b${word}\\b`,'i'),'_____');}
@@ -556,7 +557,7 @@ async function importData(file){
     const parsed=JSON.parse(await file.text());
     if(!parsed||typeof parsed.name!=='string'||!parsed.completed||typeof parsed.completed!=='object'||!Array.isArray(parsed.history))throw Error('invalid');
     const clean={name:activeProfile?.name||parsed.name.slice(0,25),completed:{},history:[],cards:{},games:{},questionTurns:{},placement:{done:false,results:{},starts:{}},sound:parsed.sound!==false,createdAt:typeof parsed.createdAt==='string'?parsed.createdAt:new Date().toISOString()};
-    if(parsed.questionTurns&&typeof parsed.questionTurns==='object'&&!Array.isArray(parsed.questionTurns))for(const [key,value] of Object.entries(parsed.questionTurns)){if(/^(lesson|skip|placement):(vocab|listening|reading|writing|speaking):([1-9]|1[0-2])$/.test(key)&&Number.isInteger(value)&&value>=0&&value<=100000)clean.questionTurns[key]=value;}
+    if(parsed.questionTurns&&typeof parsed.questionTurns==='object'&&!Array.isArray(parsed.questionTurns))for(const [key,value] of Object.entries(parsed.questionTurns)){if(/^((lesson|skip|placement):)?(vocab|listening|reading|writing|speaking):([1-9]|1[0-2])$/.test(key)&&Number.isInteger(value)&&value>=0&&value<=100000)clean.questionTurns[key]=value;}
     for(const t of TRACKS)for(const p of PACKS){const k=keyFor(t.id,p.id),c=parsed.completed[k];if(!c)continue;
       if(!Number.isFinite(c.best)||c.best<0||c.best>10||!Number.isFinite(c.first)||!Number.isFinite(c.last)||!Number.isFinite(c.time)||typeof c.date!=='string')throw Error('invalid');
       clean.completed[k]={first:c.first,best:c.best,last:c.last,time:c.time,lastDuration:Number(c.lastDuration)||c.time,attempts:Number(c.attempts)||1,date:c.date,badge:`${t.name} ${p.band} · Cấp ${p.id}`,gift:GIFTS[(p.id-1)%GIFTS.length]};

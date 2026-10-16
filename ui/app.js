@@ -27,6 +27,10 @@ let currentView = 'home';
 let currentTrack = 'vocab';
 let lesson = null;
 let audioBlobUrl = null;
+let recordedBlob = null;
+let recordPromise = null;
+let recordTimer = null;
+let recordGeneration = 0;
 let recorder = null;
 let stream = null;
 let profiles=[];
@@ -328,8 +332,8 @@ function renderAbout(){return `<h1 class="page-title">Về English Quest</h1><p 
   <div class="card guide-card"><h3>Thẻ từ vựng và trường hợp dùng</h3><p>Mỗi từ có câu ví dụ trong tình huống. Bé nghe phát âm, lật thẻ xem nghĩa, đọc thành tiếng và viết từ. Nhận diện giọng nói chỉ so khớp từ được nghe, không chấm phát âm theo âm vị; trình duyệt có thể chuyển âm thanh tới dịch vụ nhận diện của họ. Web không lưu bản ghi âm.</p></div>
   <div class="card guide-card"><h3>Đường đua tình huống</h3><p>Trò chơi xen kẽ hiểu nghĩa, điền từ, nghe từ và đọc chuyện ngắn. Điểm tính theo độ đúng, thời gian chỉ được ghi lại. Trò chơi không thay thế bài học chính.</p></div>
   <div class="card guide-card"><h3>Kiểm tra vượt cấp</h3><p>Ở Từ vựng, Nghe và Đọc, bé có thể làm 11–12 câu ngắn thay cho bài đầy đủ. Chỉ đúng toàn bộ mới mở cấp tiếp theo. Viết và Nói cần người lớn xem sản phẩm thật nên không tự động vượt cấp qua câu hỏi ngắn.</p></div>
-  <div class="card guide-card"><h3>Ranh giới đánh giá</h3><p>Bài nghe dùng giọng đọc của trình duyệt. Bài nói và viết mở có phần tự đánh giá; chúng không thay thế người dạy hoặc giám khảo.</p></div></div>
-  <div class="section-head"><div><h2>Dữ liệu học tập</h2></div></div><div class="card guide-card"><p>Trang lưu tên hiển thị, mã nhận dạng Google và tiến độ trên máy chủ; khi chưa đồng bộ, trình duyệt giữ bản tạm. Email của bé chỉ được giữ dưới dạng giá trị băm trong lúc chờ đăng nhập lần đầu. Phiên đăng nhập dùng cookie chỉ máy chủ đọc. Phụ huynh có thể tải bản sao hoặc xóa tài khoản và tiến độ trong mục Hồ sơ. Bản ghi âm chỉ dùng để nghe lại trong buổi học; nhận diện lời đọc có thể gửi âm thanh tới dịch vụ của trình duyệt.</p></div>
+  <div class="card guide-card"><h3>Ranh giới đánh giá</h3><p>Bài nghe dùng giọng đọc của trình duyệt. Bài nói đọc lại câu mẫu được nhận diện và chấm độ khớp nội dung; không chấm phát âm từng âm. Bài nói tự do và viết mở cần người lớn xem, không thay thế giám khảo.</p></div></div>
+  <div class="section-head"><div><h2>Dữ liệu học tập</h2></div></div><div class="card guide-card"><p>Trang lưu tên hiển thị, mã nhận dạng Google và tiến độ trên máy chủ; khi chưa đồng bộ, trình duyệt giữ bản tạm. Email của bé chỉ được giữ dưới dạng giá trị băm trong lúc chờ đăng nhập lần đầu. Phiên đăng nhập dùng cookie chỉ máy chủ đọc. Phụ huynh có thể tải bản sao hoặc xóa tài khoản và tiến độ trong mục Hồ sơ. Khi chấm bài nói, âm thanh được gửi tới Cloudflare AI để nhận diện; web không lưu bản ghi âm. Nhận diện từ vựng bằng trình duyệt có thể gửi âm thanh tới dịch vụ của trình duyệt.</p></div>
   <div class="section-head"><div><h2>Tài liệu tham chiếu</h2></div></div><div class="card guide-card source-links"><p>Nội dung câu hỏi, hội thoại và truyện trên web được viết mới. Cấu trúc kỹ năng tham chiếu từ:</p><ul><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/movers/format/" target="_blank" rel="noopener">Cambridge English · A1 Movers exam format</a></li><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/flyers/format/" target="_blank" rel="noopener">Cambridge English · A2 Flyers exam format</a></li><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/flyers/preparation/" target="_blank" rel="noopener">Cambridge English · Flyers preparation resources</a></li></ul><p>English Quest không liên kết, được chứng nhận hay bảo trợ bởi Cambridge English.</p></div>`;}
 
 function optionsFor(answer, pool, count=4){
@@ -362,7 +366,7 @@ function questionsFor(track, pack){
     return [...spell,{kind:'open',label:pack.band==='Flyers'?'Kể chuyện bằng 3 tranh · Câu 6':'Viết câu · Câu 6',text:pack.band==='Flyers'?`Nhìn 3 tranh gợi ý và viết một câu chuyện ngắn. ${pack.speak}`:`Viết 2–3 câu tiếng Anh theo gợi ý: ${pack.speak}`,model:pack.model,visual:pack.band==='Flyers'?words.slice(0,3).map(w=>w[2]):null}];
   }
   const compare=[1,4,7,10].includes(pack.id),story=[2,5,9,11].includes(pack.id);
-  return [{kind:'speaking',label:compare?'So sánh hai tranh':story?'Kể chuyện theo tranh':'Hỏi đáp',text:compare?`Nhìn hai hình và nói điều khác nhau. Sau đó thử thêm: ${pack.speak}`:story?`Kể một câu chuyện từ các hình gợi ý. ${pack.speak}`:pack.speak,model:compare?`In picture A, there is a ${words[2][0]}. In picture B, there is a ${words[3][0]}.`:pack.model,audio:pack.model,visual:compare?[words.slice(0,3).map(w=>w[2]).join(' '),[words[0],words[1],words[3]].map(w=>w[2]).join(' ')]:story?words.slice(0,4).map(w=>w[2]):null}];
+  return [{kind:'speaking',label:'Đọc thành tiếng',text:'Nghe câu mẫu rồi đọc lại bằng tiếng Anh.',extension:compare?`Tự nói thêm điểm khác nhau giữa hai tranh. ${pack.speak}`:story?`Tự kể câu chuyện khác theo tranh. ${pack.speak}`:pack.speak,model:pack.model,audio:pack.model,visual:compare?[words.slice(0,3).map(w=>w[2]).join(' '),[words[0],words[1],words[3]].map(w=>w[2]).join(' ')]:story?words.slice(0,4).map(w=>w[2]):null}];
 }
 function skipQuestionsFor(track,pack){
   const base=questionsFor(track,pack),words=pack.words;
@@ -379,7 +383,7 @@ function openLesson(track, level, mode='lesson'){
   if (!unlocked(track,level)) return;
   if(mode==='skip'&&!['vocab','listening','reading'].includes(track))return;
   const pack=PACKS[level-1];if(!pack)return;
-  stopAudio();stopRecord();
+  stopAudio();recordGeneration++;stopRecord();recordedBlob=null;
   const questions=questionsFor(track,pack);
   lesson={mode,track,level,pack,questions:mode==='skip'?skipQuestionsFor(track,pack):questions,index:0,answers:[],startedAt:Date.now(),selected:null,checked:false};
   document.getElementById('lessonOverlay').classList.remove('hidden');
@@ -410,9 +414,9 @@ function renderQuestion(){
   const options=q.kind==='choice'?`<div class="option-grid">${q.options.map((option,i)=>`<button class="answer-option" data-option="${i}">${safe(option)}</button>`).join('')}</div>`:'';
   const input=q.kind==='input'?`<input id="answerInput" class="question-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Gõ đáp án tiếng Anh..."><p style="font-size:11px;color:#a398ae">${safe(q.hint||'')}</p>`:'';
   const rubric=q.kind==='open'?`<textarea id="openInput" class="question-input" rows="4" placeholder="Viết câu của bé vào đây..."></textarea><div class="model-box"><strong>Gợi ý sau khi viết:</strong> <button class="subtle-link" id="showModel">Xem câu mẫu</button><div id="modelText" class="hidden">${safe(q.model)}</div></div><div class="rubric"><label><input type="checkbox" class="rubric-check"> Bé viết ít nhất 2 câu</label><label><input type="checkbox" class="rubric-check"> Câu có nội dung phù hợp tranh / gợi ý</label><label><input type="checkbox" class="rubric-check"> Từ chính được viết đúng</label><label><input type="checkbox" class="rubric-check"> Câu có động từ và dễ hiểu</label></div><p class="mic-status">Phần này do bé và phụ huynh tự đánh giá theo tiêu chí; web không chấm chất lượng câu tự động.</p>`:'';
-  const speaking=q.kind==='speaking'?`<div class="model-box"><strong>Chuẩn bị:</strong> Hãy nói ít nhất 2–3 câu. <button class="subtle-link" id="showModel">Xem câu mẫu</button><div id="modelText" class="hidden">${safe(q.model)}</div></div><div class="utility-row"><button id="startRecord" class="outline-btn">● Ghi âm thử</button><button id="stopRecord" class="outline-btn" disabled>■ Dừng</button><button id="playRecord" class="outline-btn" disabled>▶ Nghe lại</button></div><p id="recordStatus" class="mic-status">Ghi âm chỉ dùng để nghe lại trong buổi học; web không lưu giọng nói.</p><div class="rubric"><label><input type="checkbox" class="rubric-check"> Bé đã nói thành tiếng</label><label><input type="checkbox" class="rubric-check"> Bé nói ít nhất 2 câu</label><label><input type="checkbox" class="rubric-check"> Bé dùng đúng từ trọng tâm</label><label><input type="checkbox" class="rubric-check"> Người nghe hiểu được ý chính</label></div><p class="mic-status">Điểm nói là điểm tự đánh giá có phụ huynh hỗ trợ, không phải điểm phát âm Cambridge.</p>`:'';
+  const speaking=q.kind==='speaking'?`<div class="model-box"><strong>Câu cần đọc:</strong> ${safe(q.model)}</div><div class="utility-row"><button id="startRecord" class="outline-btn">● Bắt đầu đọc</button><button id="stopRecord" class="outline-btn" disabled>■ Dừng ghi âm</button><button id="playRecord" class="outline-btn" disabled>▶ Nghe lại</button></div><p id="recordStatus" class="mic-status">Ghi âm tối đa 20 giây. Khi bấm Chấm câu đọc, âm thanh được gửi tới Cloudflare AI để nhận diện; web không lưu bản ghi.</p><div class="model-box"><strong>Luyện nói tự do sau đó:</strong> ${safe(q.extension)} <span class="mic-status">Nhờ phụ huynh nghe câu trả lời; phần này chưa chấm tự động.</span></div><p class="mic-status">Điểm /10 chỉ đo mức khớp giữa lời máy nhận diện và câu mẫu, không phải điểm phát âm từng âm hay điểm thi Cambridge.</p>`:'';
   body.innerHTML=`<span class="question-type">${safe(q.label)}</span><div class="question-card">${context}${visual}<h3>${safe(q.text)}</h3>${audio}</div>${options}${input}${rubric}${speaking}<div id="feedback" aria-live="polite"></div>`;
-  document.getElementById('lessonFooter').innerHTML=`<button class="outline-btn" id="quitLesson">Thoát bài</button><button class="accent-btn ${q.kind==='choice'?'hidden':''}" id="checkAnswer">${q.kind==='open'||q.kind==='speaking'?'Hoàn thành':'Kiểm tra'}</button>`;
+  document.getElementById('lessonFooter').innerHTML=`<button class="outline-btn" id="quitLesson">Thoát bài</button><button class="accent-btn ${q.kind==='choice'?'hidden':''}" id="checkAnswer">${q.kind==='speaking'?'Chấm câu đọc':q.kind==='open'?'Hoàn thành':'Kiểm tra'}</button>`;
   body.querySelectorAll('.answer-option').forEach(b=>b.addEventListener('click',()=>{
     if(lesson.checked)return;
     b.classList.add('selected');lesson.selected=q.options[Number(b.dataset.option)];checkAnswer();
@@ -427,15 +431,44 @@ function renderQuestion(){
   body.querySelector('#answerInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')checkAnswer();});
 }
 async function startRecord(){
-  if(!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder){document.getElementById('recordStatus').textContent='Trình duyệt này chưa hỗ trợ ghi âm. Bé có thể nói to và tự đánh giá.';return;}
-  try{stream=await navigator.mediaDevices.getUserMedia({audio:true});recorder=new MediaRecorder(stream);const chunks=[];recorder.ondataavailable=e=>chunks.push(e.data);recorder.onstop=()=>{if(audioBlobUrl)URL.revokeObjectURL(audioBlobUrl);audioBlobUrl=URL.createObjectURL(new Blob(chunks,{type:recorder.mimeType}));const play=document.getElementById('playRecord');if(play)play.disabled=false;};recorder.start();document.getElementById('startRecord').disabled=true;document.getElementById('stopRecord').disabled=false;document.getElementById('recordStatus').textContent='Đang ghi âm…';}
-  catch(_){document.getElementById('recordStatus').textContent='Không mở được micro. Bé vẫn có thể nói to và tự đánh giá.';}
+  if(!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder){document.getElementById('recordStatus').textContent='Trình duyệt này chưa hỗ trợ ghi âm. Hãy dùng Chrome hoặc Edge để làm bài nói.';return;}
+  try{
+    const currentLesson=lesson,generation=++recordGeneration;
+    const mic=await navigator.mediaDevices.getUserMedia({audio:true});
+    if(lesson!==currentLesson||generation!==recordGeneration){mic.getTracks().forEach(t=>t.stop());return;}
+    stream=mic;recorder=new MediaRecorder(stream);const chunks=[];
+    recordedBlob=null;if(audioBlobUrl)URL.revokeObjectURL(audioBlobUrl);audioBlobUrl=null;
+    recordPromise=new Promise(resolve=>{recorder.onstop=()=>{if(generation!==recordGeneration){resolve(null);return;}recordedBlob=new Blob(chunks,{type:recorder.mimeType});audioBlobUrl=URL.createObjectURL(recordedBlob);const play=document.getElementById('playRecord');if(play)play.disabled=false;resolve(recordedBlob);};});
+    recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+    recorder.start();recordTimer=setTimeout(stopRecord,20000);
+    document.getElementById('startRecord').disabled=true;document.getElementById('stopRecord').disabled=false;document.getElementById('recordStatus').textContent='Đang ghi âm… đọc câu mẫu rồi bấm Dừng ghi âm.';
+  }catch(_){document.getElementById('recordStatus').textContent='Không mở được micro. Kiểm tra quyền micro trên trình duyệt rồi thử lại.';}
 }
-function stopRecord(){if(recorder?.state==='recording')recorder.stop();stream?.getTracks().forEach(t=>t.stop());stream=null;const s=document.getElementById('recordStatus');if(s)s.textContent='Đã dừng ghi âm. Bé có thể nghe lại trước khi đánh giá.';const b=document.getElementById('stopRecord');if(b)b.disabled=true;const a=document.getElementById('startRecord');if(a)a.disabled=false;}
+function stopRecord(){if(recordTimer)clearTimeout(recordTimer);recordTimer=null;if(recorder?.state==='recording')recorder.stop();stream?.getTracks().forEach(t=>t.stop());stream=null;const s=document.getElementById('recordStatus');if(s)s.textContent='Đã ghi âm. Nghe lại hoặc bấm Chấm câu đọc.';const b=document.getElementById('stopRecord');if(b)b.disabled=true;const a=document.getElementById('startRecord');if(a)a.disabled=false;return recordPromise;}
+async function wavFromRecording(blob){
+  const context=new (window.AudioContext||window.webkitAudioContext)();
+  try{
+    const decoded=await context.decodeAudioData(await blob.arrayBuffer());
+    if(decoded.duration<1||decoded.duration>21)throw Error('Hãy đọc câu mẫu từ 1 đến 20 giây.');
+    const rate=16000,length=Math.ceil(decoded.duration*rate),offline=new OfflineAudioContext(1,length,rate),source=offline.createBufferSource();
+    source.buffer=decoded;source.connect(offline.destination);source.start();
+    const rendered=await offline.startRendering(),samples=rendered.getChannelData(0),wav=new ArrayBuffer(44+samples.length*2),view=new DataView(wav);
+    const tag=(offset,s)=>{for(let i=0;i<s.length;i++)view.setUint8(offset+i,s.charCodeAt(i))};
+    tag(0,'RIFF');view.setUint32(4,wav.byteLength-8,true);tag(8,'WAVE');tag(12,'fmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,rate,true);view.setUint32(28,rate*2,true);view.setUint16(32,2,true);view.setUint16(34,16,true);tag(36,'data');view.setUint32(40,samples.length*2,true);
+    let energy=0;for(let i=0;i<samples.length;i++){const sample=Math.max(-1,Math.min(1,samples[i]));energy+=sample*sample;view.setInt16(44+i*2,sample<0?sample*32768:sample*32767,true)}
+    if(Math.sqrt(energy/samples.length)<.004)throw Error('Chưa nghe thấy giọng nói. Hãy đến gần micro và đọc lại.');
+    return wav;
+  }finally{await context.close()}
+}
+async function assessSpeech(level,blob){
+  const wav=await wavFromRecording(blob);
+  const response=await fetch(`/api/speech/assess?profile=${encodeURIComponent(activeProfile.id)}&level=${level}`,{method:'POST',headers:{'content-type':'audio/wav'},body:wav,credentials:'same-origin',cache:'no-store'});
+  const result=await response.json();if(!response.ok)throw Error(result.error||'Không chấm được bài nói.');return result;
+}
 function normalized(s){return String(s).trim().toLowerCase().replace(/[.!?,]/g,'').replace(/\s+/g,' ');}
-function checkAnswer(){
-  if(!lesson||lesson.checked)return;
-  const q=lesson.questions[lesson.index],body=document.getElementById('lessonBody');let value=null,credit=0;
+async function checkAnswer(){
+  if(!lesson||lesson.checked||lesson.assessing)return;
+  const currentLesson=lesson,q=lesson.questions[lesson.index],body=document.getElementById('lessonBody');let value=null,credit=0;
   if(q.kind==='choice'){
     if(lesson.selected===null){body.querySelector('#feedback').innerHTML='<div class="feedback bad">Hãy chọn một đáp án trước nhé.</div>';return;}
     value=lesson.selected;credit=value===q.answer?1:0;
@@ -448,14 +481,23 @@ function checkAnswer(){
     credit=[...body.querySelectorAll('.rubric-check')].filter(x=>x.checked).length/4;
     body.querySelector('#openInput').disabled=true;body.querySelectorAll('.rubric-check').forEach(x=>x.disabled=true);
   } else {
-    const checked=[...body.querySelectorAll('.rubric-check')].filter(x=>x.checked).length;
-    if(!checked){body.querySelector('#feedback').innerHTML='<div class="feedback bad">Hãy nói thành tiếng rồi đánh dấu tiêu chí đã làm được.</div>';return;}
-    value=`${checked}/4 tiêu chí`;credit=checked/4;body.querySelectorAll('.rubric-check').forEach(x=>x.disabled=true);stopRecord();
+    if(recorder?.state==='recording')await stopRecord();
+    if(!recordedBlob){body.querySelector('#feedback').innerHTML='<div class="feedback bad">Hãy ghi âm câu mẫu trước khi chấm.</div>';return;}
+    lesson.assessing=true;const button=document.getElementById('checkAnswer');button.disabled=true;button.textContent='Đang nhận diện…';
+    try{
+      const result=await assessSpeech(lesson.level,recordedBlob);
+      if(lesson!==currentLesson)return;
+      value=result.transcript||'(không nhận diện được lời nói)';credit=result.score/10;
+      body.querySelector('#recordStatus').textContent=`Máy nghe được: “${value}”. Lượt chấm còn lại hôm nay: ${result.remaining}.`;
+      body.querySelector('#startRecord').disabled=true;
+    }catch(error){if(lesson!==currentLesson)return;body.querySelector('#feedback').innerHTML=`<div class="feedback bad">${safe(error.message)}</div>`;button.disabled=false;button.textContent='Chấm câu đọc';lesson.assessing=false;return;}
+    lesson.assessing=false;
   }
   lesson.answers.push({value,credit,answer:q.answer||null});lesson.checked=true;
   const correct=credit===1;
   if(q.kind==='choice'||q.kind==='input') window.QUEST_SFX.play(correct?'correct':'wrong');
-  body.querySelector('#feedback').innerHTML=`<div class="feedback ${correct?'ok':'bad'}">${q.kind==='open'||q.kind==='speaking'?`Tự đánh giá: ${round1(credit*10)}/10 cho nhiệm vụ này.`:correct?'✓ Chính xác!':`✦ Chưa đúng. Đáp án là: ${safe(q.answer)}. Mình nhớ lại nhé!`}</div>`;
+  body.querySelector('#feedback').innerHTML=`<div class="feedback ${correct?'ok':'bad'}">${q.kind==='speaking'?`Mức khớp câu mẫu: ${round1(credit*10)}/10. Bé có thể nghe lại để tự sửa cách nói.`:q.kind==='open'?`Tự đánh giá: ${round1(credit*10)}/10 cho nhiệm vụ này.`:correct?'✓ Chính xác!':`✦ Chưa đúng. Đáp án là: ${safe(q.answer)}. Mình nhớ lại nhé!`}</div>`;
+  document.getElementById('checkAnswer').disabled=false;
   document.getElementById('checkAnswer').classList.remove('hidden');
   const last=lesson.index===lesson.questions.length-1;
   document.getElementById('checkAnswer').textContent=last&&lesson.mode==='placement'?(lesson.answers.slice(-3).every(a=>a.credit===1)&&lesson.tier<2?'Sang vòng tiếp →':'Xem gợi ý cấp'):last?'Xem kết quả':'Tiếp tục →';
@@ -470,7 +512,7 @@ function nextQuestion(){
       else{finishPlacement(perfect);return;}
     }else{finishLesson();return;}
   }
-  lesson.index++;lesson.selected=null;lesson.checked=false;stopAudio();renderQuestion();
+  lesson.index++;lesson.selected=null;lesson.checked=false;recordedBlob=null;stopAudio();renderQuestion();
 }
 function finishLesson(){
   stopAudio();stopRecord();clearInterval(window.questTimer);
@@ -497,7 +539,7 @@ function finishLesson(){
   document.getElementById('finishClose').onclick=()=>{closeLesson();setView('paths',track)};
   document.getElementById('retryLesson').onclick=()=>openLesson(track,level,mode);
 }
-function closeLesson(){stopAudio();stopRecord();if(audioBlobUrl)URL.revokeObjectURL(audioBlobUrl);audioBlobUrl=null;clearInterval(window.questTimer);lesson=null;document.getElementById('lessonOverlay').classList.add('hidden');document.body.style.overflow='';setView(currentView,currentTrack);}
+function closeLesson(){stopAudio();recordGeneration++;stopRecord();if(audioBlobUrl)URL.revokeObjectURL(audioBlobUrl);audioBlobUrl=null;recordedBlob=null;clearInterval(window.questTimer);lesson=null;document.getElementById('lessonOverlay').classList.add('hidden');document.body.style.overflow='';setView(currentView,currentTrack);}
 function exportData(){const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='english-quest-tien-do.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 async function importData(file){
   if(!file)return;

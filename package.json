@@ -2,7 +2,16 @@
   "name": "english-quest-independent",
   "private": true,
   "type": "module",
-  "scripts": {"build": "node scripts/build.mjs", "dev": "wrangler dev", "deploy": "npm run build && wrangler deploy"},
-  "devDependencies": {"wrangler": "^4.0.0"}
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "jose": "^6.2.12"
+  }
 }
 

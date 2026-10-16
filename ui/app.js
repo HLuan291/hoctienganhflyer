@@ -1,6 +1,9 @@
 const PACKS = window.QUEST_PACKS;
 const TRACKS = window.QUEST_TRACKS;
 const STORE_KEY = 'english-quest-progress-v1';
+const SOLO_CACHE_KEY = `${STORE_KEY}:solo-profile`;
+const profileCacheKey = id => `${STORE_KEY}:${id}`;
+const profileDirtyKey = id => `${STORE_KEY}:dirty:${id}`;
 const GIFTS = ['🌟','🦋','🌈','🐱','🎨','🧸','🪁','🦄','📚','🎵','🪐','🌻'];
 const trackById = id => TRACKS.find(t => t.id === id);
 const keyFor = (track, level) => `${track}-${level}`;
@@ -40,6 +43,11 @@ let syncPending=false;
 let syncBusy=false;
 
 function freshData(name='Bé'){return {name,completed:{},history:[],cards:{},games:{},questionTurns:{},placement:{done:false,results:{},starts:{}},sound:true,createdAt:new Date().toISOString()};}
+function saveProfileCache(){
+  if(!activeProfile)return;
+  localStorage.setItem(SOLO_CACHE_KEY,JSON.stringify(activeProfile));
+  localStorage.setItem(profileCacheKey(activeProfile.id),JSON.stringify(data));
+}
 function updateSync(label){const el=document.getElementById('syncState');if(el){el.textContent=label;el.title=label;el.setAttribute('aria-label',label||'Trạng thái lưu tiến độ');el.classList.toggle('error',label==='Chưa đồng bộ');}}
 async function accountApi(path,options={}){
   const response=await fetch(`/api/${path}`,{credentials:'same-origin',cache:'no-store',...options,headers:{'content-type':'application/json',...(options.headers||{})}});
@@ -70,11 +78,12 @@ async function flushProfile(){
       const selected=activeProfile;
       const result=await accountApi('solo',{method:'PUT',body:JSON.stringify({revision:selected.revision,data})});
       selected.revision=result.revision;selected.name=data.name;
-      if(!syncPending)localStorage.removeItem(`${STORE_KEY}:${selected.id}`);
+      saveProfileCache();
+      if(!syncPending)localStorage.removeItem(profileDirtyKey(selected.id));
       updateSync('Đã lưu');
     }catch(error){
       if(error.status===409){
-        try{const latest=await accountApi('solo');data=mergeProgress(latest.data,data);activeProfile.revision=latest.revision;syncPending=true;continue;}
+        try{const latest=await accountApi('solo');data=mergeProgress(latest.data,data);activeProfile.revision=latest.revision;saveProfileCache();syncPending=true;continue;}
         catch(_){}
       }
       syncPending=true;updateSync('Chưa đồng bộ');break;
@@ -83,24 +92,48 @@ async function flushProfile(){
   syncBusy=false;
 }
 function persist(){
-  localStorage.setItem(activeProfile?`${STORE_KEY}:${activeProfile.id}`:STORE_KEY,JSON.stringify(data));
-  if(activeProfile){syncPending=true;void flushProfile();}
+  if(activeProfile){saveProfileCache();localStorage.setItem(profileDirtyKey(activeProfile.id),'1');syncPending=true;void flushProfile();}
+  else localStorage.setItem(STORE_KEY,JSON.stringify(data));
 }
 async function bootstrapSolo(){
   try{
     const profile=await accountApi('solo');
     activeProfile={id:profile.id,name:profile.name,revision:profile.revision};
     data=profile.data;
-    try{const cached=JSON.parse(localStorage.getItem(`${STORE_KEY}:${profile.id}`));if(cached?.completed&&Array.isArray(cached.history)){data=mergeProgress(data,cached);syncPending=true;}}catch(_){}
+    try{const cached=JSON.parse(localStorage.getItem(profileCacheKey(profile.id)));if(localStorage.getItem(profileDirtyKey(profile.id))&&cached?.completed&&Array.isArray(cached.history)){data=mergeProgress(data,cached);syncPending=true;}}catch(_){}
     if(!data.placement)data.placement={done:Boolean(data.history?.length),results:{},starts:{}};
     if(!data.questionTurns||typeof data.questionTurns!=='object')data.questionTurns={};
     data.placement.results??={};data.placement.starts??={};
+    saveProfileCache();
     document.getElementById('profileToggle').textContent=data.name.charAt(0).toUpperCase();
     accountError='';updateSync(syncPending?'Đang lưu…':'Đã lưu');
     if(syncPending)void flushProfile();
     setView(data.placement.done||data.history?.length?'home':'assessment');
-  }catch(error){activeProfile=null;accountError=error.status===401?'':error.message;updateSync('');setView('account');}
+  }catch(error){
+    if(!error.status||error.status>=500){
+      try{
+        const profile=JSON.parse(localStorage.getItem(SOLO_CACHE_KEY));
+        const cached=JSON.parse(localStorage.getItem(profileCacheKey(profile?.id)));
+        if(profile?.id&&Number.isInteger(profile.revision)&&cached?.completed&&Array.isArray(cached.history)){
+          activeProfile=profile;data=cached;syncPending=Boolean(localStorage.getItem(profileDirtyKey(profile.id)));
+          updateSync('Ngoại tuyến');setView(data.placement?.done||data.history.length?'home':'assessment');return;
+        }
+      }catch(_){}
+    }
+    activeProfile=null;accountError=error.status===401?'':error.message;updateSync('');setView('account');
+  }
 }
+async function refreshProfile(){
+  if(!activeProfile||syncPending)return;
+  try{
+    const profile=await accountApi('solo');
+    if(!activeProfile||profile.id!==activeProfile.id||syncPending)return;
+    activeProfile.revision=profile.revision;activeProfile.name=profile.name;data=profile.data;saveProfileCache();
+    updateSync('Đã lưu');if(!lesson)setView(currentView,currentTrack);
+  }catch{updateSync('Chưa đồng bộ');}
+}
+window.addEventListener('online',()=>{if(activeProfile&&syncPending)void flushProfile();else if(activeProfile)void refreshProfile();});
+window.addEventListener('offline',()=>{if(activeProfile)updateSync('Ngoại tuyến');});
 function renderAccount(){return `<div class="access-gate"><span class="eyebrow">HÀNH TRÌNH CỦA BÉ</span><h1 class="page-title">Mở liên kết học riêng</h1><p class="page-intro">Dán liên kết riêng đã nhận để tiếp tục đúng tiến độ của bé trên thiết bị này.</p>
   ${accountError?`<div class="warning" role="alert">${safe(accountError)}</div>`:''}
   <div class="card guide-card"><label for="privateLink"><strong>Liên kết của bé</strong></label><div class="access-link-row"><input id="privateLink" class="text-input" type="url" inputmode="url" autocomplete="off" placeholder="Dán liên kết riêng ở đây"><button id="openPrivateLink" class="accent-btn">Mở bài học</button></div><p>Ai có liên kết đều có thể xem và sửa tiến độ. Phụ huynh hãy giữ liên kết này riêng tư.</p></div></div>`;}

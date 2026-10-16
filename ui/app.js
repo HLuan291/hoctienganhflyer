@@ -334,7 +334,7 @@ function renderAbout(){return `<h1 class="page-title">Về English Quest</h1><p 
   <div class="card guide-card"><h3>Thưởng khi vượt cấp</h3><p>Một danh hiệu và một món quà ảo được ghi nhận ở lần vượt cấp đầu tiên. Làm lại để ôn và cải thiện điểm mà không phát quà trùng.</p></div>
   <div class="card guide-card"><h3>Thẻ từ vựng và trường hợp dùng</h3><p>Mỗi từ có câu ví dụ trong tình huống. Bé nghe phát âm, lật thẻ xem nghĩa, đọc thành tiếng và viết từ. Nhận diện giọng nói chỉ so khớp từ được nghe, không chấm phát âm theo âm vị; trình duyệt có thể chuyển âm thanh tới dịch vụ nhận diện của họ. Web không lưu bản ghi âm.</p></div>
   <div class="card guide-card"><h3>Đường đua tình huống</h3><p>Trò chơi xen kẽ hiểu nghĩa, điền từ, nghe từ và đọc chuyện ngắn. Điểm tính theo độ đúng, thời gian chỉ được ghi lại. Trò chơi không thay thế bài học chính.</p></div>
-  <div class="card guide-card"><h3>Kiểm tra vượt cấp</h3><p>Ở Từ vựng, Nghe và Đọc, bé có thể làm 11–12 câu ngắn thay cho bài đầy đủ. Câu hỏi được rút luân phiên từ ngân hàng theo từng cấp; chỉ đúng toàn bộ mới mở cấp tiếp theo. Viết và Nói cần người lớn xem sản phẩm thật nên không tự động vượt cấp qua câu hỏi ngắn.</p></div>
+  <div class="card guide-card"><h3>Kiểm tra vượt cấp</h3><p>Ở Từ vựng, Nghe và Đọc, bé có thể làm 11–12 câu ngắn thay cho bài đầy đủ. Ngân hàng nghe/đọc có 312 câu trên 12 cấp; câu được rút luân phiên và có cả dạng tự viết đáp án ngắn. Chỉ đúng toàn bộ mới mở cấp tiếp theo. Viết và Nói cần người lớn xem sản phẩm thật nên không tự động vượt cấp qua câu hỏi ngắn.</p></div>
   <div class="card guide-card"><h3>Ranh giới đánh giá</h3><p>Bài nghe dùng giọng đọc của trình duyệt. Bài nói đọc lại câu mẫu được nhận diện và chấm độ khớp nội dung; không chấm phát âm từng âm. Bài nói tự do và viết mở cần người lớn xem, không thay thế giám khảo.</p></div></div>
   <div class="section-head"><div><h2>Dữ liệu học tập</h2></div></div><div class="card guide-card"><p>Trang lưu tên hiển thị, mã nhận dạng Google và tiến độ trên máy chủ; khi chưa đồng bộ, trình duyệt giữ bản tạm. Email của bé chỉ được giữ dưới dạng giá trị băm trong lúc chờ đăng nhập lần đầu. Phiên đăng nhập dùng cookie chỉ máy chủ đọc. Phụ huynh có thể tải bản sao hoặc xóa tài khoản và tiến độ trong mục Hồ sơ. Khi chấm bài nói, âm thanh được gửi tới Cloudflare AI để nhận diện; web không lưu bản ghi âm. Nhận diện từ vựng bằng trình duyệt có thể gửi âm thanh tới dịch vụ của trình duyệt.</p></div>
   <div class="section-head"><div><h2>Tài liệu tham chiếu</h2></div></div><div class="card guide-card source-links"><p>Nội dung câu hỏi, hội thoại và truyện trên web được viết mới. Cấu trúc kỹ năng tham chiếu từ:</p><ul><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/movers/format/" target="_blank" rel="noopener">Cambridge English · A1 Movers exam format</a></li><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/flyers/format/" target="_blank" rel="noopener">Cambridge English · A2 Flyers exam format</a></li><li><a href="https://www.cambridgeenglish.org/exams-and-tests/qualifications/young-learners/paper/flyers/preparation/" target="_blank" rel="noopener">Cambridge English · Flyers preparation resources</a></li></ul><p>English Quest không liên kết, được chứng nhận hay bảo trợ bởi Cambridge English.</p></div>`;}
@@ -357,11 +357,22 @@ function readingWordQuestion(pack,index,turn,label){
   const word=pack.words[index],inContext=Boolean(window.QUEST_USAGE?.[pack.id]?.[index])&&(turn+index)%2===1;
   return inContext?{kind:'choice',label,text:`Chọn từ hoàn thành câu: ${blankUsage(pack,index)}`,options:optionsFor(word[0],pack.words.map(w=>w[0])),answer:word[0]}:{kind:'choice',label,text:`Trong chủ đề này, “${word[0]}” có nghĩa là gì?`,options:optionsFor(word[1],pack.words.map(w=>w[1])),answer:word[1]};
 }
+function shortAnswerAliases(answer){
+  const withoutLead=answer.replace(/^(?:in|at|on|to|by|under|over|beside|behind|before|after|from|during|near)\s+/i,'').replace(/^(?:the|a|an|my|her|his|our)\s+/i,'');
+  const digits={one:'1',two:'2',three:'3',four:'4',five:'5',six:'6',seven:'7',eight:'8',nine:'9',ten:'10'};
+  return [...new Set([withoutLead,digits[answer.toLowerCase()]].filter(Boolean))];
+}
 function comprehensionQuestions(track,pack,turn){
   const original=(track==='listening'?pack.listen:pack.read).map(row=>({kind:'choice',label:track==='listening'?'Nghe hội thoại':'Đọc hiểu',text:row[0],options:shuffleOptions(row[2]),answer:row[1],...(track==='listening'?{audio:pack.dialogue}:{context:pack.story})}));
   const extra=window.QUEST_QUESTION_BANK?.[pack.id]?.[track];
   const added=extra.questions.map(row=>({kind:'choice',label:track==='listening'?'Nghe hội thoại mới':'Đọc đoạn mới',text:row[0],options:shuffleOptions(row[2]),answer:row[1],...(track==='listening'?{audio:extra.audio}:{context:extra.context})}));
-  return rotateQuestions([...original,...added],3,turn);
+  const more=window.QUEST_QUESTION_BANK_MORE?.[pack.id]?.[track]?.flatMap(block=>block.questions.map(row=>({kind:'choice',label:track==='listening'?'Nghe hội thoại mới':'Đọc đoạn mới',text:row[0],options:shuffleOptions(row[2]),answer:row[1],...(track==='listening'?{audio:block.audio}:{context:block.context})})))||[];
+  const pool=[...original,...added,...more],start=(3+turn*3)%pool.length;
+  return Array.from({length:3},(_,i)=>{
+    const question=pool[(start+i)%pool.length];
+    const answerLength=question.answer.trim().split(/\s+/).length,maxWords=pack.band==='Movers'?3:4;
+    return answerLength<=maxWords&&(turn+i)%3===0?{...question,kind:'input',label:track==='listening'?'Nghe và viết đáp án':'Đọc và viết đáp án',hint:`Viết câu trả lời ngắn, tối đa ${maxWords} từ.`,accept:shortAnswerAliases(question.answer)}:question;
+  });
 }
 function questionsFor(track,pack,turn=0){
   const words=pack.words,indices=rotateQuestions([...words.keys()],8,turn,3);
@@ -474,7 +485,7 @@ async function assessSpeech(level,sample,blob){
   const response=await fetch(`/api/speech/assess?profile=${encodeURIComponent(activeProfile.id)}&level=${level}&sample=${sample}`,{method:'POST',headers:{'content-type':'audio/wav'},body:wav,credentials:'same-origin',cache:'no-store'});
   const result=await response.json();if(!response.ok)throw Error(result.error||'Không chấm được bài nói.');return result;
 }
-function normalized(s){return String(s).trim().toLowerCase().replace(/[.!?,]/g,'').replace(/\s+/g,' ');}
+function normalized(s){return String(s).trim().toLowerCase().replace(/[’']/g,'').replace(/[.!?,]/g,'').replace(/\s+/g,' ');}
 async function checkAnswer(){
   if(!lesson||lesson.checked||lesson.assessing)return;
   const currentLesson=lesson,q=lesson.questions[lesson.index],body=document.getElementById('lessonBody');let value=null,credit=0;
@@ -484,7 +495,7 @@ async function checkAnswer(){
     body.querySelectorAll('.answer-option').forEach(b=>{const option=q.options[Number(b.dataset.option)];if(option===q.answer)b.classList.add('correct');else if(option===value)b.classList.add('wrong');b.disabled=true;});
   } else if(q.kind==='input'){
     value=body.querySelector('#answerInput').value;if(!normalized(value)){body.querySelector('#feedback').innerHTML='<div class="feedback bad">Hãy viết một đáp án trước nhé.</div>';return;}
-    credit=normalized(value)===normalized(q.answer)?1:0;body.querySelector('#answerInput').disabled=true;
+    credit=[q.answer,...(q.accept||[])].some(answer=>normalized(value)===normalized(answer))?1:0;body.querySelector('#answerInput').disabled=true;
   } else if(q.kind==='open'){
     value=body.querySelector('#openInput').value.trim();if(value.length<15){body.querySelector('#feedback').innerHTML='<div class="feedback bad">Hãy viết ít nhất 2 câu ngắn trước nhé.</div>';return;}
     credit=[...body.querySelectorAll('.rubric-check')].filter(x=>x.checked).length/4;

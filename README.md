@@ -14,7 +14,7 @@ Worker và D1 đã được triển khai trên tài khoản Cloudflare của ph�
 - Bé chỉ xem và lưu tiến độ của mình. Phụ huynh xem tiến độ của các bé trong tài khoản mình tạo.
 - Kiểm tra đầu vào từng kỹ năng; bài vượt cấp Từ vựng, Nghe, Đọc gồm 11–12 câu và cần đúng toàn bộ. Viết và Nói vẫn cần người lớn xem sản phẩm thật.
 - Trò chơi tình huống, thẻ từ, ví dụ dùng từ, lịch sử điểm/thời gian, danh hiệu và quà ảo.
-- Ngân hàng bổ sung 24 đoạn nghe/đọc ngắn với 48 câu hỏi mới cho 12 cấp. Bài đầu vào, bài học và bài vượt cấp xoay vòng câu hỏi theo số lượt của từng hồ sơ; từ vựng, chính tả, câu mẫu nói và thứ tự đáp án cũng thay đổi. Ngân hàng có giới hạn nên sau nhiều lượt nội dung sẽ lặp lại.
+- Ngân hàng bổ sung 72 đoạn nghe/đọc ngắn với 240 câu hỏi mới cho 12 cấp; cộng với 72 câu ban đầu là 312 câu nghe/đọc. Bài đầu vào, bài học và bài vượt cấp xoay vòng câu hỏi theo số lượt của từng hồ sơ, không lặp ngay ở lượt kế tiếp. Một số câu yêu cầu tự viết câu trả lời ngắn theo dạng luyện tập tham chiếu Movers/Flyers. Từ vựng, chính tả, câu mẫu nói và thứ tự đáp án cũng thay đổi. Ngân hàng có giới hạn nên sau nhiều lượt nội dung sẽ lặp lại.
 - Bài Nói có ghi âm tối đa 20 giây và chấm mức khớp câu mẫu bằng Cloudflare Workers AI Whisper; giới hạn 25 lượt/hồ sơ/ngày. Bé có thể luyện nói tự do theo gợi ý nhưng phần này cần phụ huynh nghe lại. Điểm tự động không đo chất lượng phát âm từng âm.
 - Tải/nhập bản sao tiến độ JSON. Không tự chuyển dữ liệu qua hai tên miền vì trình duyệt cô lập bộ nhớ theo tên miền.
 

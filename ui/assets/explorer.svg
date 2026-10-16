@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 340" role="img" aria-label="Bé khám phá bản đồ tiếng Anh">
+  <defs><pattern id="dots" width="18" height="18" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="1.5" fill="#176f70" opacity=".18"/></pattern></defs>
+  <rect x="4" y="7" width="512" height="326" rx="28" fill="#f9e7b2" stroke="#25454b" stroke-width="5"/>
+  <rect x="15" y="18" width="490" height="304" rx="20" fill="url(#dots)"/>
+  <path d="M28 244C83 218 81 147 143 150s82 81 137 74 64-130 145-135" fill="none" stroke="#fffaf0" stroke-width="31" stroke-linecap="round" stroke-dasharray="5 0"/>
+  <path d="M28 244C83 218 81 147 143 150s82 81 137 74 64-130 145-135" fill="none" stroke="#25454b" stroke-width="3" stroke-dasharray="9 12" stroke-linecap="round"/>
+  <g stroke="#25454b" stroke-width="4" stroke-linejoin="round">
+    <path d="M43 245l21-29 26 10-1 36-29 5z" fill="#8cc6a5"/><path d="M70 214l9-20 16 8-5 24z" fill="#6aaf8b"/>
+    <path d="M382 85l42-26 40 22v47h-82z" fill="#eb755d"/><path d="M373 85l52-37 50 37z" fill="#f6c96f"/><rect x="415" y="100" width="24" height="28" fill="#fff7df"/>
+    <circle cx="289" cy="224" r="17" fill="#f6c96f"/><path d="M289 208v31M273 224h32" stroke="#25454b"/>
+    <path d="M126 120l12-19 13 19 23 3-16 15 4 22-24-10-21 10 3-23-16-14z" fill="#f6c96f"/>
+  </g>
+  <g transform="translate(170 119)" stroke="#25454b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="88" cy="185" rx="77" ry="12" fill="#b69778" opacity=".26" stroke="none"/>
+    <path d="M63 94l-19 37 18 18 27-18-4-40z" fill="#ec8d63"/><path d="M87 92l35 16 4 42-36-7z" fill="#e77961"/>
+    <path d="M72 139l-19 34 18 6 24-34z" fill="#3d7782"/><path d="M103 137l28 27-17 15-33-27z" fill="#3d7782"/>
+    <path d="M49 174l24 1 5 14-33 2zM116 174l18-14 16 12-24 19z" fill="#25454b"/>
+    <path d="M65 96c-11-18-21-18-24-7l12 20 18 4M117 107c15-16 23-18 29-8l-20 22-13-4" fill="#e7a37e"/>
+    <path d="M65 99l-8-26 56-8 10 38-22 38-28-3z" fill="#f2b18b"/>
+    <path d="M60 79c-8-30 6-46 33-45 23-1 37 19 30 46-11-5-17-11-24-22-9 16-23 18-39 21z" fill="#293c42"/>
+    <path d="M115 42c15-1 25 7 28 17l-21 4z" fill="#293c42"/>
+    <path d="M62 65c-6 15-4 32 2 44l-17 5c-7-21-5-42 3-56z" fill="#293c42"/>
+    <circle cx="78" cy="85" r="2.6" fill="#25454b" stroke="none"/><circle cx="103" cy="85" r="2.6" fill="#25454b" stroke="none"/><path d="M85 101q8 8 16 0" fill="none" stroke-width="2.5"/>
+    <path d="M47 57q37-41 81-5l-5 12q-32-20-68 8z" fill="#f6c96f"/><path d="M46 56q32-44 84-3" fill="none"/>
+    <path d="M132 117l30-17 20 18-33 20z" fill="#fffaf0"/><path d="M146 107l8 22M161 102l8 23" fill="none" stroke-width="2"/>
+  </g>
+  <rect x="24" y="27" width="104" height="30" rx="15" fill="#25454b"/><text x="76" y="47" fill="#fffaf0" font-family="Arial,sans-serif" font-size="14" font-weight="bold" text-anchor="middle">LEVEL UP!</text>
+  <path d="M464 221l7 15 17 2-12 11 3 17-15-8-15 8 3-17-12-11 17-2z" fill="#eb755d" stroke="#25454b" stroke-width="4" stroke-linejoin="round"/>
+</svg>
+

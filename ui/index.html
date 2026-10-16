@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f7f1e6">
+  <meta name="description" content="English Quest: 5 lộ trình học từ A1 Movers đến A2 Flyers cho học sinh lớp 5.">
+  <title>English Quest — Movers đến Flyers</title>
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./cards.css">
+  <link rel="stylesheet" href="./game.css">
+  <link rel="stylesheet" href="./redesign.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Điều hướng chính">
+      <a class="brand" href="#home" aria-label="English Quest, về trang chủ"><span class="brand-mark">✦</span><span><strong>English Quest</strong><small>Movers → Flyers</small></span></a>
+      <div class="side-caption">KHÁM PHÁ</div>
+      <nav class="nav-list">
+        <button class="nav-item active" data-view="home"><span>⌂</span> Tổng quan</button>
+        <button class="nav-item" data-view="paths"><span>⌁</span> Lộ trình học</button>
+        <button class="nav-item" data-view="cards"><span>▧</span> Thẻ từ vựng</button>
+        <button class="nav-item" data-view="game"><span>✦</span> Trò chơi tình huống</button>
+        <button class="nav-item" data-view="rewards"><span>◇</span> Bộ sưu tập</button>
+        <button class="nav-item" data-view="parent"><span>▣</span> Góc phụ huynh</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-note"><span class="note-spark">✧</span><strong>Mỗi ngày một bước nhỏ</strong><p>Học từ, chơi thử thách và tiến gần hơn đến Flyers.</p></div>
+        <button class="nav-item about-link" data-view="about"><span>ⓘ</span> Về chương trình</button>
+      </div>
+    </aside>
+
+    <div class="main-column">
+      <header class="topbar">
+        <button class="mobile-menu" id="menuToggle" aria-label="Mở menu" aria-expanded="false">☰</button>
+        <div class="crumb" id="crumb">Tổng quan <span> / Hành trình của bé</span></div>
+        <div class="top-actions"><span class="today-pill" id="todayLabel"></span><span id="syncState" class="sync-state" role="status"></span><button id="soundToggle" class="round-action" title="Bật hoặc tắt âm thanh" aria-label="Bật hoặc tắt âm thanh">♫</button><button id="profileToggle" class="avatar" aria-label="Chọn hồ sơ học sinh">E</button></div>
+      </header>
+      <main id="mainContent" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <div id="lessonOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="lessonTitle">
+    <div class="lesson-panel">
+      <div class="lesson-header"><div><span class="eyebrow" id="lessonBand"></span><h2 id="lessonTitle"></h2></div><button id="closeLesson" class="close-button" aria-label="Đóng bài học">×</button></div>
+      <div class="lesson-progress"><span id="lessonStepLabel"></span><div class="progress-rail"><div id="lessonProgressFill"></div></div><span id="lessonTimer"></span></div>
+      <div id="lessonBody"></div>
+      <div id="lessonFooter" class="lesson-footer"></div>
+    </div>
+  </div>
+
+  <script src="./data.js"></script>
+  <script src="./usage.js"></script>
+  <script src="./cards.js"></script>
+  <script src="./audio.js"></script>
+  <script src="./game.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
+

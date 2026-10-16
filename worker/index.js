@@ -39,6 +39,7 @@ async function googleIdentity(env,credential){
   return {sub:payload.sub,email,name:String(payload.given_name||payload.name||'Phụ huynh').trim().slice(0,25)||'Phụ huynh'};
 }
 const cookie=(token,secure)=>`quest_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/api; Max-Age=2592000${secure?'; Secure':''}`;
+const soloCookie=(token,secure)=>`quest_solo=${token}; HttpOnly; SameSite=Lax; Path=/api; Max-Age=31536000${secure?'; Secure':''}`;
 const clearCookie=secure=>`quest_session=; HttpOnly; SameSite=Lax; Path=/api; Max-Age=0${secure?'; Secure':''}`;
 const assetType=p=>p.endsWith('.html')?'text/html; charset=utf-8':p.endsWith('.css')?'text/css; charset=utf-8':p.endsWith('.js')?'text/javascript; charset=utf-8':p.endsWith('.svg')?'image/svg+xml':'application/octet-stream';
 async function bodyOf(request){const raw=await request.text();if(raw.length>350000)throw Error('Dữ liệu quá lớn.');try{return JSON.parse(raw)}catch{throw Error('Dữ liệu không hợp lệ.')}}
@@ -46,6 +47,12 @@ async function sessionUser(request,env){
   const token=/\bquest_session=([^;]+)/.exec(request.headers.get('cookie')||'')?.[1];if(!token)return null;
   const tokenHash=await sha(decodeURIComponent(token));
   return env.DB.prepare('SELECT u.id,u.username,u.role,u.parent_id,u.display_name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').bind(tokenHash,Date.now()).first();
+}
+async function soloUser(request,env){
+  const token=/\bquest_solo=([a-f0-9]{64})\b/.exec(request.headers.get('cookie')||'')?.[1];
+  if(!token)return null;
+  const tokenHash=await sha(token);
+  return env.DB.prepare("SELECT u.id,u.display_name FROM solo_links l JOIN users u ON u.id=l.user_id WHERE l.token_hash=? AND u.role='child'").bind(tokenHash).first();
 }
 async function newSession(env,userId,secure){
   const token=hex(crypto.getRandomValues(new Uint8Array(32)));
@@ -61,6 +68,7 @@ async function api(request,env,url){
     const speechUpload=url.pathname==='/api/speech/assess'&&request.method==='POST';
     if(!request.headers.get('content-type')?.startsWith(speechUpload?'audio/wav':'application/json'))return error(speechUpload?'Yêu cầu âm thanh WAV.':'Yêu cầu phải là JSON.',415);
   }
+  if(!env.LEGACY_AUTH_ENABLED&&!['/api/solo','/api/speech/assess'].includes(url.pathname))return error('Chức năng tài khoản đã ngừng sử dụng.',410);
   if(url.pathname==='/api/setup/status'&&request.method==='GET'){
     const parent=await env.DB.prepare("SELECT id FROM users WHERE role='parent' LIMIT 1").first();return reply({needed:!parent});
   }
@@ -126,8 +134,25 @@ async function api(request,env,url){
     await env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()).run();
     return reply({role:user.role,name:user.display_name,username:user.username},200,{'set-cookie':await newSession(env,user.id,secure)});
   }
+  const solo=await soloUser(request,env);
+  if(url.pathname==='/api/solo'&&request.method==='GET'){
+    if(!solo)return error('Cần mở liên kết riêng của bé.',401);
+    const row=await env.DB.prepare('SELECT data_json,revision FROM progress WHERE user_id=?').bind(solo.id).first();
+    if(!row)return error('Chưa có tiến độ.',404);
+    return reply({id:solo.id,name:solo.display_name,data:JSON.parse(row.data_json),revision:row.revision});
+  }
+  if(url.pathname==='/api/solo'&&request.method==='PUT'){
+    if(!solo)return error('Cần mở liên kết riêng của bé.',401);
+    const body=await bodyOf(request);
+    if(!Number.isInteger(body.revision)||body.revision<0||!validData(body.data))return error('Tiến độ không hợp lệ.',400);
+    const name=body.data.name.trim(),now=new Date().toISOString();
+    const updated=await env.DB.prepare('UPDATE progress SET data_json=?,revision=revision+1,updated_at=? WHERE user_id=? AND revision=?').bind(JSON.stringify(body.data),now,solo.id,body.revision).run();
+    if(updated.meta?.changes!==1)return error('Tiến độ đã thay đổi ở thiết bị khác.',409);
+    await env.DB.prepare('UPDATE users SET display_name=? WHERE id=?').bind(name,solo.id).run();
+    return reply({revision:body.revision+1});
+  }
   const user=await sessionUser(request,env);
-  if(!user)return error('Cần đăng nhập.',401);
+  if(!user&&!solo)return error('Cần mở liên kết riêng của bé.',401);
   if(url.pathname==='/api/session'&&request.method==='GET')return reply({role:user.role,name:user.display_name,username:user.username});
   if(url.pathname==='/api/logout'&&request.method==='POST'){
     const token=/\bquest_session=([^;]+)/.exec(request.headers.get('cookie')||'')?.[1];if(token)await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await sha(decodeURIComponent(token))).run();
@@ -135,10 +160,10 @@ async function api(request,env,url){
   }
   if(url.pathname==='/api/speech/assess'&&request.method==='POST'){
     if(!env.AI)return error('Chấm nói chưa được cấu hình.',503);
-    const profileId=url.searchParams.get('profile'),level=Number(url.searchParams.get('level')),sample=Number(url.searchParams.get('sample')||0);
+    const profileId=solo?.id||url.searchParams.get('profile'),level=Number(url.searchParams.get('level')),sample=Number(url.searchParams.get('sample')||0);
     if(!/^[a-f0-9-]{36}$/.test(profileId||'')||!Number.isInteger(level)||level<1||level>SPEAKING_MODELS.length||!Number.isInteger(sample)||sample<0||sample>=SPEAKING_MODELS[level-1].length)return error('Bài nói không hợp lệ.',400);
     const child=await env.DB.prepare("SELECT id,parent_id FROM users WHERE id=? AND role='child'").bind(profileId).first();
-    if(!permitted(user,child))return error('Không tìm thấy học sinh.',404);
+    if(!child||!solo&&!permitted(user,child))return error('Không tìm thấy học sinh.',404);
     if(Number(request.headers.get('content-length'))>800000)return error('Bản ghi quá dài; tối đa 20 giây.',413);
     const audio=await request.arrayBuffer();
     const header=new Uint8Array(audio,0,Math.min(audio.byteLength,12));
@@ -153,6 +178,7 @@ async function api(request,env,url){
     const reference=SPEAKING_MODELS[level-1][sample],assessment=speechScore(reference,transcript);
     return reply({transcript,reference,...assessment,remaining:25-Number((await env.DB.prepare('SELECT attempts FROM speech_usage WHERE user_id=? AND day_utc=?').bind(child.id,day).first())?.attempts||25)});
   }
+  if(!user)return error('Cần tài khoản quản trị.',401);
   const list=url.pathname==='/api/profiles',match=/^\/api\/profiles\/([a-f0-9-]{36})$/.exec(url.pathname),codeMatch=/^\/api\/profiles\/([a-f0-9-]{36})\/code$/.exec(url.pathname);
   if(list&&request.method==='GET'){
     const result=user.role==='parent'?await env.DB.prepare("SELECT id,display_name AS name,username,created_at,google_email_hash IS NOT NULL AS google_pending,google_sub IS NOT NULL AS google_linked FROM users WHERE parent_id=? AND role='child' ORDER BY created_at ASC").bind(user.id).all():await env.DB.prepare('SELECT id,display_name AS name,username,created_at FROM users WHERE id=?').bind(user.id).all();
@@ -195,6 +221,7 @@ async function api(request,env,url){
     if(request.method==='DELETE'){
       if(user.role!=='parent')return error('Chỉ phụ huynh xóa tài khoản học sinh.',403);
       await env.DB.batch([
+        env.DB.prepare('DELETE FROM solo_links WHERE user_id=?').bind(child.id),
         env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(child.id),
         env.DB.prepare('DELETE FROM progress WHERE user_id=?').bind(child.id),
         env.DB.prepare('DELETE FROM speech_usage WHERE user_id=?').bind(child.id),
@@ -219,6 +246,15 @@ async function api(request,env,url){
 }
 export default {async fetch(request,env){
   const url=new URL(request.url);
+  const link=/^\/start\/([a-f0-9]{64})$/.exec(url.pathname);
+  if(link){
+    if(request.method!=='GET')return new Response('Method not allowed',{status:405});
+    if(!env.DB||!env.AUTH_PEPPER)return new Response('Unavailable',{status:503});
+    const tokenHash=await sha(link[1]);
+    const found=await env.DB.prepare('SELECT user_id FROM solo_links WHERE token_hash=?').bind(tokenHash).first();
+    if(!found)return new Response('Liên kết không hợp lệ.',{status:404,headers:{'cache-control':'no-store','referrer-policy':'no-referrer'}});
+    return new Response(null,{status:302,headers:{location:'/', 'set-cookie':soloCookie(link[1],url.protocol==='https:'),'cache-control':'no-store','referrer-policy':'no-referrer','x-robots-tag':'noindex'}});
+  }
   if(url.pathname.startsWith('/api/')){
     try{return await api(request,env,url)}catch(e){if(e?.message==='Dữ liệu quá lớn.'||e?.message==='Dữ liệu không hợp lệ.')return error(e.message,400);return error('Máy chủ chưa xử lý được yêu cầu.',500)}
   }

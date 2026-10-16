@@ -3,7 +3,7 @@
   "main": "dist/index.js",
   "compatibility_date": "2026-10-16",
   "d1_databases": [
-    {"binding": "DB", "database_name": "english-quest-family", "database_id": "REPLACE_WITH_CLOUDFLARE_D1_ID"}
+    {"binding": "DB", "database_name": "english-quest-family", "database_id": "5e968e34-532e-41db-bf94-3bd57944ece4"}
   ]
 }
 
